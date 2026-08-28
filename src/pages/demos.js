@@ -115,29 +115,29 @@ function getAudioContext() {
 }
 
 // ---- File handling ----
-browseBtn.addEventListener('click', (e) => {
+browseBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
   fileInput.click();
 });
 
-uploadZone.addEventListener('click', () => {
+uploadZone?.addEventListener('click', () => {
   fileInput.click();
 });
 
-uploadZone.addEventListener('dragover', (e) => {
+uploadZone?.addEventListener('dragover', (e) => {
   e.preventDefault();
   uploadZone.classList.add('border-primary');
   const inner = uploadZone.querySelector(':scope > div');
   if (inner) inner.classList.add('border-primary', 'bg-primary/10');
 });
 
-uploadZone.addEventListener('dragleave', () => {
+uploadZone?.addEventListener('dragleave', () => {
   uploadZone.classList.remove('border-primary');
   const inner = uploadZone.querySelector(':scope > div');
   if (inner) inner.classList.remove('border-primary', 'bg-primary/10');
 });
 
-uploadZone.addEventListener('drop', (e) => {
+uploadZone?.addEventListener('drop', (e) => {
   e.preventDefault();
   uploadZone.classList.remove('border-primary');
   const inner = uploadZone.querySelector(':scope > div');
@@ -146,18 +146,18 @@ uploadZone.addEventListener('drop', (e) => {
   if (file) handleFile(file);
 });
 
-fileInput.addEventListener('change', (e) => {
+fileInput?.addEventListener('change', (e) => {
   const file = e.target.files?.[0];
   if (file) handleFile(file);
   fileInput.value = '';
 });
 
-reanalyzeBtn.addEventListener('click', () => {
+reanalyzeBtn?.addEventListener('click', () => {
   hideAnalysis();
   fileInput.click();
 });
 
-saveResultBtn.addEventListener('click', () => {
+saveResultBtn?.addEventListener('click', () => {
   if (!currentAnalysis) return;
   const d = demos.add({
     title: currentAnalysis.filename.replace(/\.[^.]+$/, ''),
@@ -728,8 +728,7 @@ if (demosBatchDeleteBtn) {
   });
 }
 // 复选框点击（委托）
-demoList.addEventListener('click', (e) => {
-  if (!demosSelectMode) return;
+demoList?.addEventListener('click', (e) => {
   const el = e.target.closest('[data-demo-check]');
   if (!el) return;
   const id = el.dataset.demoCheck;
@@ -739,7 +738,7 @@ demoList.addEventListener('click', (e) => {
   renderList();
 });
 
-demoList.addEventListener('click', (e) => {
+demoList?.addEventListener('click', (e) => {
   if (demosSelectMode) return;
   const btn = e.target.closest('button[data-action="delete"]');
   if (!btn) return;

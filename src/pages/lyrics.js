@@ -94,7 +94,7 @@ function lyricCheckbox(checked, id) {
 }
 
 // Quick add
-saveBtn.addEventListener('click', () => {
+saveBtn?.addEventListener('click', () => {
   const body = bodyInput.value.trim();
   if (!body) { window.MFToast('先写一句再保存'); return; }
   const title = titleInput.value.trim() || body.split('\n')[0].slice(0, 12);
@@ -105,7 +105,7 @@ saveBtn.addEventListener('click', () => {
   render();
 });
 
-newBtn.addEventListener('click', () => {
+newBtn?.addEventListener('click', () => {
   titleInput.focus();
   bodyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
@@ -119,12 +119,12 @@ function scheduleAutosave() {
     autoLabel.textContent = '已自动暂存';
   }, 600);
 }
-bodyInput.addEventListener('input', scheduleAutosave);
-titleInput.addEventListener('input', scheduleAutosave);
+bodyInput?.addEventListener('input', scheduleAutosave);
+titleInput?.addEventListener('input', scheduleAutosave);
 
 // Ctrl/Cmd+Enter to save
-bodyInput.addEventListener('keydown', (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn.click();
+bodyInput?.addEventListener('keydown', (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') saveBtn?.click();
 });
 
 // List
@@ -219,7 +219,7 @@ if (lyricsBatchDeleteBtn) {
   });
 }
 // 复选框点击（委托）
-listEl.addEventListener('click', (e) => {
+listEl?.addEventListener('click', (e) => {
   if (!lyricsSelectMode) return;
   const el = e.target.closest('[data-lyric-check]');
   if (!el) return;
@@ -230,7 +230,7 @@ listEl.addEventListener('click', (e) => {
   render();
 });
 
-listEl.addEventListener('click', (e) => {
+listEl?.addEventListener('click', (e) => {
   if (lyricsSelectMode) return;
   const article = e.target.closest('article[data-id]');
   if (!article) return;
@@ -257,10 +257,10 @@ function closeModal() {
   modal.classList.add('hidden');
   editingId = null;
 }
-modal.addEventListener('click', (e) => {
+modal?.addEventListener('click', (e) => {
   if (e.target.matches('[data-close]') || e.target.closest('[data-close]')) closeModal();
 });
-editSave.addEventListener('click', () => {
+editSave?.addEventListener('click', () => {
   if (!editingId) return;
   const list = lyrics.all();
   const item = list.find((x) => x.id === editingId);

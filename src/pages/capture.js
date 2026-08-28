@@ -34,7 +34,7 @@ function setMode(next) {
     // 不打断录音
   }
 }
-toggle.addEventListener('click', (e) => {
+toggle?.addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-mode]');
   if (btn) setMode(btn.dataset.mode);
 });
@@ -56,17 +56,17 @@ function closeNameModal() {
   nameModal.style.display = 'none';
   if (nameResolver) { nameResolver(null); nameResolver = null; }
 }
-document.getElementById('name-close').addEventListener('click', closeNameModal);
-document.getElementById('name-cancel').addEventListener('click', closeNameModal);
-document.getElementById('name-confirm').addEventListener('click', () => {
+document.getElementById('name-close')?.addEventListener('click', closeNameModal);
+document.getElementById('name-cancel')?.addEventListener('click', closeNameModal);
+document.getElementById('name-confirm')?.addEventListener('click', () => {
   const val = nameInput.value.trim();
   closeNameModal();
   if (nameResolver) { nameResolver(val); nameResolver = null; }
 });
-nameModal.addEventListener('click', (e) => {
+nameModal?.addEventListener('click', (e) => {
   if (e.target === nameModal) closeNameModal();
 });
-nameInput.addEventListener('keydown', (e) => {
+nameInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') document.getElementById('name-confirm').click();
   if (e.key === 'Escape') closeNameModal();
 });
@@ -88,9 +88,9 @@ function closeConfirm(result) {
   confirmModal.style.display = 'none';
   if (confirmResolver) { confirmResolver(!!result); confirmResolver = null; }
 }
-document.getElementById('confirm-cancel').addEventListener('click', () => closeConfirm(false));
-document.getElementById('confirm-ok').addEventListener('click', () => closeConfirm(true));
-confirmModal.addEventListener('click', (e) => {
+document.getElementById('confirm-cancel')?.addEventListener('click', () => closeConfirm(false));
+document.getElementById('confirm-ok')?.addEventListener('click', () => closeConfirm(true));
+confirmModal?.addEventListener('click', (e) => {
   if (e.target === confirmModal) closeConfirm(false);
 });
 document.addEventListener('keydown', (e) => {
@@ -112,7 +112,7 @@ function saveTextIdea(body, titleOverride) {
 }
 
 // 文字面板保存按钮（文字模式下的面板）
-document.getElementById('save-text-btn').addEventListener('click', async () => {
+document.getElementById('save-text-btn')?.addEventListener('click', async () => {
   const ta = document.getElementById('idea-text');
   const body = (ta?.value || '').trim();
   if (!body) { window.MFToast('写点什么再保存'); return; }
@@ -139,14 +139,14 @@ function closeQuickTextModal() {
   quickTextModal.style.display = 'none';
 }
 if (quickTextBtn) quickTextBtn.addEventListener('click', openQuickTextModal);
-quickTextClose.addEventListener('click', closeQuickTextModal);
-quickTextModal.addEventListener('click', (e) => {
+quickTextClose?.addEventListener('click', closeQuickTextModal);
+quickTextModal?.addEventListener('click', (e) => {
   if (e.target === quickTextModal) closeQuickTextModal();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && quickTextModal.style.display === 'flex') closeQuickTextModal();
 });
-quickTextSave.addEventListener('click', async () => {
+quickTextSave?.addEventListener('click', async () => {
   const body = quickTextArea.value.trim();
   if (!body) { window.MFToast('写点什么再保存'); return; }
   const defaultName = body.split('\n')[0].slice(0, 12) || (body.length > 12 ? body.slice(0, 12) + '…' : body);
@@ -156,7 +156,7 @@ quickTextSave.addEventListener('click', async () => {
   closeQuickTextModal();
 });
 // Ctrl/Cmd + Enter in quick text area
-quickTextArea.addEventListener('keydown', (e) => {
+quickTextArea?.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') quickTextSave.click();
 });
 
@@ -1096,8 +1096,8 @@ function transportStop() {
   playheadEl.style.left = `${left}px`;
 }
 
-document.getElementById('transport-stop').addEventListener('click', transportStop);
-document.getElementById('transport-play').addEventListener('click', transportPlay);
+document.getElementById('transport-stop')?.addEventListener('click', transportStop);
+document.getElementById('transport-play')?.addEventListener('click', transportPlay);
 
 // ================== Transport REC ==================
 // For every armed track, we create an independent MediaRecorder on the same shared mic stream.
@@ -1211,7 +1211,7 @@ function finalizeRecClip(ctx) {
   }
 }
 
-document.getElementById('transport-rec').addEventListener('click', transportRec);
+document.getElementById('transport-rec')?.addEventListener('click', transportRec);
 
 // ================== Wide mode（横屏扩大录音板块）==================
 const wideBtn = document.getElementById('wide-toggle-btn');
@@ -1243,14 +1243,14 @@ function toggleWide(on) {
   // 更新 playhead 位置
   if (transportState === 'idle') seekToSeconds(playBaseSec);
 }
-wideBtn.addEventListener('click', () => toggleWide(!isWide));
+wideBtn?.addEventListener('click', () => toggleWide(!isWide));
 // ESC 关闭横屏
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && isWide) toggleWide(false);
 });
 
 // ================== Add track ==================
-document.getElementById('add-track-btn').addEventListener('click', () => {
+document.getElementById('add-track-btn')?.addEventListener('click', () => {
   const n = project.tracks.filter((t) => t.kind === 'record').length + 1;
   project.tracks.push({
     id: `track_${uid()}`,
@@ -1265,8 +1265,8 @@ document.getElementById('add-track-btn').addEventListener('click', () => {
 });
 
 // ================== Backing import（支持多文件 / 多伴奏轨，每条伴奏 = 一条独立轨）==================
-document.getElementById('import-backing-btn').addEventListener('click', () => document.getElementById('backing-file').click());
-document.getElementById('backing-file').addEventListener('change', (e) => {
+document.getElementById('import-backing-btn')?.addEventListener('click', () => document.getElementById('backing-file')?.click());
+document.getElementById('backing-file')?.addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
   if (!files.length) return;
@@ -1316,7 +1316,7 @@ document.getElementById('backing-file').addEventListener('change', (e) => {
 });
 
 // ================== Save project ==================
-document.getElementById('save-project-btn').addEventListener('click', async () => {
+document.getElementById('save-project-btn')?.addEventListener('click', async () => {
   if (!project.tracks.length || !project.tracks.some((t) => t.clips.length)) {
     window.MFToast('工程是空的');
     return;
@@ -1563,8 +1563,7 @@ if (capturesBatchDeleteBtn) {
 }
 
 // 点击卡片上的复选框（事件委托）
-listEl.addEventListener('click', (e) => {
-  if (!capturesSelectMode) return;
+listEl?.addEventListener('click', (e) => {
   const checkEl = e.target.closest('[data-capture-check]');
   if (!checkEl) return;
   const id = checkEl.dataset.captureCheck;
@@ -1574,7 +1573,7 @@ listEl.addEventListener('click', (e) => {
   renderList();
 });
 
-listEl.addEventListener('click', async (e) => {
+listEl?.addEventListener('click', async (e) => {
   // 多选模式下跳过操作按钮逻辑
   if (capturesSelectMode && !e.target.closest('button[data-action]')) return;
   const article = e.target.closest('article[data-id]');
@@ -1837,19 +1836,19 @@ function doSearch() {
   refreshIcons();
 }
 
-document.getElementById('search-btn').addEventListener('click', openSearchModal);
-document.getElementById('search-close').addEventListener('click', closeSearchModal);
-document.getElementById('search-cancel').addEventListener('click', closeSearchModal);
-document.getElementById('search-confirm').addEventListener('click', doSearch);
-searchModal.addEventListener('click', (e) => {
+document.getElementById('search-btn')?.addEventListener('click', openSearchModal);
+document.getElementById('search-close')?.addEventListener('click', closeSearchModal);
+document.getElementById('search-cancel')?.addEventListener('click', closeSearchModal);
+document.getElementById('search-confirm')?.addEventListener('click', doSearch);
+searchModal?.addEventListener('click', (e) => {
   if (e.target === searchModal) closeSearchModal();
 });
-searchInput.addEventListener('keydown', (e) => {
+searchInput?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') doSearch();
   if (e.key === 'Escape') closeSearchModal();
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && searchModal.style.display === 'flex') closeSearchModal();
+  if (searchModal && e.key === 'Escape' && searchModal.style.display === 'flex') closeSearchModal();
 });
 
 // ================== Init ==================
