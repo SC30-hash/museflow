@@ -2,3 +2,6 @@ node_modules/
 dist/
 *.zip
 .DS_Store
+.trae-html-share-packages/
+.uploads/
+*.log
