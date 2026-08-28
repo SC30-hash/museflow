@@ -1,0 +1,1074 @@
+@import 'tailwindcss';
+
+/* MuseFlow 音乐灵感工作室 — Tech Black-Red Brand Tokens */
+/* Single primary hue only; no secondary / accent brand variables. */
+
+:root {
+  /* Neutral dark palette */
+  --museflow-neutral-950: #050505;
+  --museflow-neutral-900: #0b0b0c;
+  --museflow-neutral-800: #131316;
+  --museflow-neutral-700: #1c1c20;
+  --museflow-neutral-600: #27272a;
+  --museflow-neutral-500: #52525b;
+  --museflow-neutral-400: #b0a294; /* 暖灰 — 次要文字，匹配红色品牌 */
+  --museflow-neutral-300: #e8dccb; /* 暖浅灰 — 高亮文字 */
+  --museflow-neutral-100: #faf3eb; /* 暖奶白 — 主文字 */
+
+  /* One primary hue — tech red */
+  --museflow-primary-500: #e53e3e;
+  --museflow-primary-600: #c53030;
+  --museflow-primary-400: #f56565;
+  --museflow-primary-100: #2a0a0a;
+
+  /* Warm red-tinted border / input surfaces (brand-cohesive, no cold white) */
+  --museflow-surface-border: #2a0808;
+  --museflow-surface-input: #1a0606;
+  --museflow-surface-muted: #1c0808;
+
+  /* Semantic aliases required by head contract */
+  --museflow-background: var(--museflow-neutral-950);
+  --museflow-foreground: var(--museflow-neutral-100);
+
+  --museflow-card: var(--museflow-neutral-900);
+  --museflow-card-foreground: var(--museflow-neutral-100);
+
+  --museflow-popover: var(--museflow-neutral-800);
+  --museflow-popover-foreground: var(--museflow-neutral-100);
+
+  --museflow-primary: var(--museflow-primary-500);
+  --museflow-primary-foreground: #ffffff;
+
+  --museflow-muted: var(--museflow-surface-muted);
+  --museflow-muted-foreground: var(--museflow-neutral-400);
+
+  --museflow-border: var(--museflow-surface-border);
+  --museflow-input: var(--museflow-surface-input);
+  --museflow-ring: var(--museflow-primary-500);
+
+  /* Radius scale */
+  --museflow-radius-xs: 2px;
+  --museflow-radius-sm: 4px;
+  --museflow-radius-md: 8px;
+  --museflow-radius-lg: 16px;
+  --museflow-radius-pill: 999px;
+
+  /* Typography — distinctive display + refined body for a music studio feel */
+  --museflow-font-sans: 'Inter', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', system-ui, sans-serif;
+  --museflow-font-display: 'Sora', 'Inter', 'PingFang SC', system-ui, sans-serif;
+  --museflow-font-mono: 'JetBrains Mono', 'SF Mono', 'SFMono-Regular', ui-monospace, monospace;
+
+  /* Static shadows (alpha <= 0.05) */
+  --museflow-shadow-1: 0 1px 2px rgba(0, 0, 0, 0.05), 0 1px 1px rgba(0, 0, 0, 0.03);
+  --museflow-shadow-2: 0 8px 24px -8px rgba(0, 0, 0, 0.05);
+
+  /* Safe-area spacing */
+  --museflow-safe-top: env(safe-area-inset-top, 0px);
+  --museflow-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --museflow-safe-left: env(safe-area-inset-left, 0px);
+  --museflow-safe-right: env(safe-area-inset-right, 0px);
+
+  /* Layout — desktop sidebar width */
+  --museflow-rail-w: 232px;
+  --museflow-frame-max: 28rem;
+}
+
+@theme inline {
+  --color-background: var(--museflow-background);
+  --color-foreground: var(--museflow-foreground);
+  --color-card: var(--museflow-card);
+  --color-card-foreground: var(--museflow-card-foreground);
+  --color-popover: var(--museflow-popover);
+  --color-popover-foreground: var(--museflow-popover-foreground);
+  --color-primary: var(--museflow-primary);
+  --color-primary-foreground: var(--museflow-primary-foreground);
+  --color-muted: var(--museflow-muted);
+  --color-muted-foreground: var(--museflow-muted-foreground);
+  --color-border: var(--museflow-border);
+  --color-input: var(--museflow-input);
+  --color-ring: var(--museflow-ring);
+  --color-surface-border: var(--museflow-surface-border);
+  --color-surface-input: var(--museflow-surface-input);
+  --color-surface-muted: var(--museflow-surface-muted);
+  --radius-sm: var(--museflow-radius-sm);
+  --radius-md: var(--museflow-radius-md);
+  --radius-lg: var(--museflow-radius-lg);
+  --font-sans: var(--museflow-font-sans);
+  --font-display: var(--museflow-font-display);
+  --font-mono: var(--museflow-font-mono);
+}
+
+@layer base {
+  html {
+    font-family: var(--museflow-font-sans);
+    background-color: var(--museflow-background);
+    color: var(--museflow-foreground);
+    -webkit-text-size-adjust: 100%;
+  }
+  /* 手机端防溢出：根容器严格限制宽度，杜绝横向滚动 */
+  html { overflow-x: hidden; max-width: 100vw; }
+  body { overflow-y: auto; overflow-x: hidden; max-width: 100vw; }
+  /* iOS Safari 长按选词与点击高亮屏蔽，避免录音/打垫时长按弹菜单 */
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    text-size-adjust: 100%;
+    overscroll-behavior-y: auto;
+    /* 单层轻量径向光 — 减少重绘开销 */
+    background-color: var(--museflow-background);
+    background-image:
+      radial-gradient(80% 50% at 50% -10%, rgba(229, 62, 62, 0.12), transparent 60%),
+      radial-gradient(50% 40% at 50% 110%, rgba(229, 62, 62, 0.06), transparent 70%);
+    color: var(--museflow-foreground);
+  }
+  ::selection {
+    background: var(--museflow-primary);
+    color: #fff;
+  }
+  /* Custom scrollbar — slim, themed */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: var(--museflow-neutral-700);
+    border-radius: 999px;
+    border: 2px solid var(--museflow-background);
+  }
+  ::-webkit-scrollbar-thumb:hover { background: var(--museflow-neutral-600); }
+  td, th { word-break: break-all; }
+  th { white-space: nowrap; }
+}
+
+@layer components {
+  /* ============ Layout shell ============ */
+  /* Mobile-first frame; on >= lg it becomes a 2-pane app with a left rail. */
+  .app-shell {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    flex: 1 1 auto;
+  }
+  .page-frame {
+    max-width: var(--museflow-frame-max);
+    margin-left: auto;
+    margin-right: auto;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    flex: 1 1 auto;
+    overflow: visible; /* 允许 fixed 子元素脱离容器约束 */
+  }
+  .page-main { flex: 1 1 auto; }
+
+  /* On desktop, the rail becomes a fixed sidebar and the phone frame floats
+     within a wider content column so the design language is preserved while
+     giving breathing room. */
+  @media (min-width: 1024px) {
+    .app-shell {
+      flex-direction: row;
+      align-items: stretch;
+    }
+    .app-rail {
+      flex: 0 0 var(--museflow-rail-w);
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      height: 100dvh;
+      border-right: 1px solid var(--museflow-border);
+      background: var(--museflow-card);
+    }
+    .page-frame {
+      flex: 1 1 auto;
+      max-width: 960px;
+      margin: 0 auto;
+      min-height: 100vh;
+      min-height: 100dvh;
+      border-left: 1px solid var(--museflow-border);
+      border-right: 1px solid var(--museflow-border);
+      box-shadow: var(--museflow-shadow-2);
+    }
+    /* Mobile bottom nav hides on desktop; rail nav takes over. */
+    [data-mobile-nav] { display: none !important; }
+    .rail-only { display: flex !important; }
+    .mobile-only { display: none !important; }
+  }
+  /* On mobile, rail is hidden and bottom nav shows. */
+  @media (max-width: 1023.98px) {
+    .app-rail { display: none !important; }
+
+    /* Floating pill nav — positioned above bottom edge with shadow lift.
+       Width constrained to match page-frame (28rem max). */
+    [data-mobile-nav] {
+      flex-shrink: 0;
+      z-index: 40;
+      background: transparent;
+      border: none;
+    }
+
+    .nav-pill {
+      backdrop-filter: blur(12px) saturate(160%);
+      -webkit-backdrop-filter: blur(12px) saturate(160%);
+    }
+
+    .nav-indicator {
+      background: rgba(229, 62, 62, 0.14);
+      border: 1px solid rgba(229, 62, 62, 0.22);
+      box-shadow: inset 0 0 12px rgba(229, 62, 62, 0.08);
+    }
+
+    /* Active item — icon scales up, label boldens */
+    .nav-item-active svg.lucide {
+      transform: scale(1.12);
+    }
+    .nav-item-active span {
+      opacity: 1;
+      font-weight: 600;
+    }
+
+    /* Label opacity dance */
+    .nav-item span { opacity: 0.65; }
+    .nav-item:hover span { opacity: 1; }
+
+    /* Add bottom padding to page content so it's not hidden behind fixed nav */
+    .page-frame {
+      padding-bottom: calc(72px + var(--museflow-safe-bottom));
+    }
+    .rail-only { display: none !important; }
+  }
+
+  /* ============ Brand mark ============ */
+  .brand-mark {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-family: var(--museflow-font-display);
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+  .brand-dot {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 999px;
+    background: var(--museflow-primary);
+  }
+
+  /* ============ Interactions ============ */
+  /* 录音按钮 — 轻量脉冲（transform + opacity，不用 box-shadow） */
+  .record-pulse {
+    animation: recordPulse 2s cubic-bezier(.2,.8,.2,1) infinite;
+  }
+  @keyframes recordPulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50%      { transform: scale(1.05); opacity: 0.9; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .record-pulse, .beat-pulse, .key-pulse, .press-shake,
+    #play-btn, body.is-playing #bpm-display { animation: none !important; }
+  }
+
+  /* Clip 编辑手势反馈：按下闪白 / 删除前摇晃 */
+  .press-flash {
+    outline: 2px solid rgba(245, 101, 101, 0.95);
+    outline-offset: -1px;
+  }
+  .press-shake {
+    animation: shakeX 0.28s cubic-bezier(.4,.0,.2,1);
+  }
+  @keyframes shakeX {
+    0%,100% { transform: translateX(0); }
+    20%    { transform: translateX(-4px); }
+    40%    { transform: translateX(4px); }
+    60%    { transform: translateX(-3px); }
+    80%    { transform: translateX(3px); }
+  }
+  /* Clip 内部波形容器：禁止响应 pointer（让手势直接命中 clip 外层） */
+  .waveform-wrap { pointer-events: none; }
+  .waveform-wrap .wave-bar { display: block; opacity: 0.85; }
+
+  /* Beat pad / melody key press feedback */
+  .beat-pad { aspect-ratio: 1 / 1; position: relative; overflow: hidden; }
+  .beat-pad:active { transform: scale(0.95); }
+  .melody-key { flex: 1 1 0; min-width: 0; }
+  .pad-active {
+    background-color: var(--museflow-primary) !important;
+    color: var(--museflow-primary-foreground) !important;
+  }
+  /* 鼓垫图标颜色区分 */
+  .beat-pad[data-pad="0"] i { color: #f87171; } /* Kick - 红 */
+  .beat-pad[data-pad="1"] i { color: #fbbf24; } /* Hi-hat - 黄 */
+  .beat-pad[data-pad="2"] i { color: #a78bfa; } /* Snare - 紫 */
+  .beat-pad[data-pad="3"] i { color: #34d399; } /* Open Hat - 绿 */
+  .beat-pad[data-pad]:active i { color: #fff; }
+
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+  /* Grain 噪点纹理 — 已移除，feTurbulence 滤镜在移动端严重影响性能 */
+
+  /* Export format menu */
+  .export-menu {
+    animation: exportMenuIn 0.12s ease-out;
+  }
+  @keyframes exportMenuIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(80px + var(--museflow-safe-bottom));
+    transform: translateX(-50%) translateY(12px);
+    background: var(--museflow-popover);
+    color: var(--museflow-popover-foreground);
+    border: 1px solid var(--museflow-border);
+    padding: 0.55rem 0.95rem;
+    border-radius: var(--museflow-radius-md);
+    font-size: 0.8125rem;
+    box-shadow: var(--museflow-shadow-2);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .18s ease, transform .18s ease;
+    z-index: 60;
+    max-width: 90vw;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  @media (min-width: 1024px) {
+    .toast { bottom: 24px; }
+  }
+}
+
+/* ============================================================
+   视觉增强 — 强光晕 / 毛玻璃卡片 / 线性发光图标 / 渐变边框
+   放在 @layer 之外，优先级高于 utilities，确保覆盖 bg-card 等。
+   ============================================================ */
+
+/* ============================================================
+   UI Polish — 整体视觉精修
+   ============================================================ */
+
+/* 卡片统一视觉：更通透的背景 + 精致边框 + 柔和发光 */
+section[class*="bg-card"],
+article[class*="bg-card"],
+header[class*="bg-card"],
+div[class*="bg-card"] {
+  background-color: rgba(19, 19, 22, 0.85);
+  background-image: linear-gradient(135deg, rgba(229, 62, 62, 0.025), transparent 50%);
+  border-color: rgba(229, 62, 62, 0.12);
+  box-shadow:
+    0 0 0 1px rgba(229, 62, 62, 0.06),
+    0 0 18px -4px rgba(229, 62, 62, 0.08),
+    0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  transition: box-shadow 0.3s cubic-bezier(.22,.61,.36,1), border-color 0.3s;
+}
+
+/* 边框光呼吸 — 卡片边框亮度循环变化 */
+@keyframes borderBreathe {
+  0%, 100% {
+    box-shadow:
+      0 0 0 1px rgba(229, 62, 62, 0.06),
+      0 0 18px -4px rgba(229, 62, 62, 0.08),
+      0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  }
+  50% {
+    box-shadow:
+      0 0 0 1px rgba(229, 62, 62, 0.18),
+      0 0 24px -2px rgba(229, 62, 62, 0.16),
+      0 2px 8px -2px rgba(0, 0, 0, 0.3);
+  }
+}
+.page-main > section[class*="bg-card"],
+.page-main > article[class*="bg-card"] {
+  animation: borderBreathe 4s ease-in-out infinite;
+}
+
+/* 数据卡片 (分析结果等) — 更强的光 */
+#result-state,
+#analyzing-state {
+  animation: borderBreathe 3.2s ease-in-out infinite;
+  animation-delay: 0.6s;
+}
+
+/* 列表卡片项 — 柔和发光边框 */
+[id$="-list"] > article[class*="bg-card"] {
+  animation: borderBreathe 5s ease-in-out infinite;
+}
+
+/* 卡片基础 — 定位 + 层叠上下文 */
+section[class*="bg-card"],
+article[class*="bg-card"] {
+  position: relative;
+  isolation: isolate;
+}
+
+/* header — 毛玻璃 + 更精致的底边线 */
+header[class*="bg-card"] {
+  background-color: rgba(11, 11, 12, 0.72);
+  backdrop-filter: blur(12px) saturate(150%);
+  -webkit-backdrop-filter: blur(12px) saturate(150%);
+  border-bottom-color: rgba(229, 62, 62, 0.15);
+  position: relative;
+  box-shadow:
+    0 0 0 1px rgba(229, 62, 62, 0.04),
+    0 2px 12px -4px rgba(229, 62, 62, 0.06);
+}
+
+/* Header 底光脉冲 */
+header[class*="bg-card"]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(229, 62, 62, 0.4), transparent);
+  pointer-events: none;
+  animation: headerGlow 4s ease-in-out infinite;
+}
+@keyframes headerGlow {
+  0%, 100% { opacity: 0.5; filter: blur(0px); }
+  50%      { opacity: 1;   filter: blur(0.5px); }
+}
+
+/* 卡片统一圆角和间距 */
+.page-main > section,
+.page-main > article {
+  border-radius: 1rem;
+}
+
+/* 主色调文字 — 标题用 display 字体 */
+h1, h2, h3,
+section > h2, section > h3 {
+  font-family: var(--museflow-font-display);
+  letter-spacing: -0.01em;
+}
+
+/* 底部导航精修 */
+.nav-pill {
+  background: rgba(19, 19, 22, 0.92);
+  border-color: rgba(229, 62, 62, 0.10);
+  backdrop-filter: blur(14px) saturate(160%);
+  -webkit-backdrop-filter: blur(14px) saturate(160%);
+}
+.nav-indicator {
+  background: rgba(229, 62, 62, 0.14);
+  border: 1px solid rgba(229, 62, 62, 0.22);
+  box-shadow: inset 0 0 12px rgba(229, 62, 62, 0.08);
+}
+@media (min-width: 1024px) {
+  .nav-indicator { transition: none; }
+}
+.nav-item {
+  font-variant-numeric: tabular-nums;
+}
+.nav-item-active i {
+  transform: scale(1.08);
+}
+.nav-item-active span {
+  font-weight: 600;
+  opacity: 1;
+}
+
+/* 上传区域精修 — 内层虚线框继承主色调 */
+#upload-zone > div {
+  background: rgba(229, 62, 62, 0.015);
+}
+#upload-zone:hover > div {
+  border-color: rgba(229, 62, 62, 0.35);
+  background: rgba(229, 62, 62, 0.03);
+}
+
+/* 输入框聚焦更精致 */
+input:focus, textarea:focus, select:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.3);
+  border-color: rgba(229, 62, 62, 0.4);
+}
+
+/* 按钮统一按压反馈 */
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+button:active {
+  transform: scale(0.97);
+}
+
+/* 分割线 — 更柔和，带微红色调 */
+.border-border {
+  border-color: rgba(229, 62, 62, 0.08);
+}
+
+/* header 底边线 — 带微妙渐变色 */
+header[class*="bg-card"]::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(229, 62, 62, 0.25), transparent);
+  pointer-events: none;
+}
+
+/* Section 标题精修 — 与主色调呼应 */
+.page-main > section > h2 {
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--museflow-neutral-400);
+  letter-spacing: 0.01em;
+}
+
+/* 列表卡片项 — 更柔和的分隔与悬停反馈 */
+.saved-item,
+[id$="-list"] > * {
+  transition: background-color 0.12s ease;
+}
+.saved-item:hover,
+[id$="-list"] > *:hover {
+  background: rgba(229, 62, 62, 0.03);
+}
+
+/* 分析结果卡片 — 更精致的数据展示（继承通用卡片样式即可，无需额外覆盖） */
+
+/* 空状态 — 更精致 */
+#empty-state .rounded-full {
+  background: rgba(229, 62, 62, 0.08) !important;
+  border: 1px solid rgba(229, 62, 62, 0.12);
+}
+
+/* 列表项分隔 — 小样 / 歌词列表 */
+.saved-item + .saved-item {
+  border-top: 1px solid rgba(229, 62, 62, 0.06);
+}
+
+/* 空状态图标容器 */
+.empty-state-icon {
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 999px;
+  background: rgba(229, 62, 62, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 1rem;
+}
+.empty-state-icon i {
+  color: rgba(229, 62, 62, 0.5);
+}
+
+/* 标签/chip 精修 */
+.tag-chip {
+  background: rgba(229, 62, 62, 0.08);
+  color: var(--museflow-primary-400);
+  border: 1px solid rgba(229, 62, 62, 0.15);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+/* 线性发光图标 — 去掉 drop-shadow 节省性能 */
+
+/* ============================================================
+   炫酷动效 — 入场 / 扫光 / 弹性 / 脉冲
+   全部使用 transform + opacity，GPU 加速，不触发重排
+   ============================================================ */
+
+/* ---- 1. 卡片入场 — fade-up stagger ---- */
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.page-main > section,
+.page-main > article {
+  animation: fadeUp 0.5s cubic-bezier(.22,.61,.36,1) both;
+}
+.page-main > section:nth-child(1) { animation-delay: 0.05s; }
+.page-main > section:nth-child(2) { animation-delay: 0.12s; }
+.page-main > section:nth-child(3) { animation-delay: 0.19s; }
+.page-main > section:nth-child(4) { animation-delay: 0.26s; }
+.page-main > section:nth-child(5) { animation-delay: 0.33s; }
+.page-main > section:nth-child(6) { animation-delay: 0.40s; }
+
+/* Header 入场 */
+.page-frame > header {
+  animation: fadeUp 0.4s cubic-bezier(.22,.61,.36,1) both;
+  animation-delay: 0.02s;
+}
+
+/* ---- 2. 主按钮扫光 ---- */
+.btn-shine,
+button.bg-primary,
+button[class*="bg-primary"] {
+  position: relative;
+  overflow: hidden;
+}
+button.bg-primary::after,
+button[class*="bg-primary"]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    105deg,
+    transparent 0%,
+    transparent 40%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 60%,
+    transparent 100%
+  );
+  transform: translateX(-120%);
+  transition: transform 0.6s cubic-bezier(.22,.61,.36,1);
+  pointer-events: none;
+}
+button.bg-primary:hover::after,
+button[class*="bg-primary"]:hover::after {
+  transform: translateX(120%);
+}
+
+/* ---- 3. 导航指示器弹性过渡 ---- */
+.nav-indicator {
+  transition:
+    left 0.38s cubic-bezier(.34,1.56,.64,1),
+    top 0.38s cubic-bezier(.34,1.56,.64,1),
+    width 0.38s cubic-bezier(.34,1.56,.64,1),
+    height 0.38s cubic-bezier(.34,1.56,.64,1);
+}
+
+/* ---- 4. 卡片悬停光效 ---- */
+.page-main > section[class*="bg-card"]:hover,
+.page-main > div[class*="bg-card"]:hover {
+  transform: translateY(-2px);
+  transition: transform 0.25s cubic-bezier(.22,.61,.36,1), box-shadow 0.25s;
+  box-shadow: 0 0 0 1px rgba(229, 62, 62, 0.15),
+              0 8px 32px -12px rgba(229, 62, 62, 0.18);
+}
+.page-main > section[class*="bg-card"],
+.page-main > div[class*="bg-card"] {
+  transition: transform 0.25s cubic-bezier(.22,.61,.36,1), box-shadow 0.25s;
+}
+
+/* 列表卡片项悬停 — 微抬 + 光边 */
+article[class*="bg-card"]:hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 0 0 1px rgba(229, 62, 62, 0.2),
+              0 4px 16px -6px rgba(229, 62, 62, 0.15);
+}
+
+/* ---- 5. Header 图标脉冲光晕 ---- */
+header[class*="bg-card"] > div > div:first-child i[data-lucide] {
+  animation: iconGlow 2.8s ease-in-out infinite;
+}
+@keyframes iconGlow {
+  0%, 100% { filter: drop-shadow(0 0 0px rgba(229, 62, 62, 0)); }
+  50%      { filter: drop-shadow(0 0 6px rgba(229, 62, 62, 0.45)); }
+}
+
+/* ---- 6. 上传区渐变边框动画 ---- */
+@keyframes borderFlow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+#upload-zone > div {
+  position: relative;
+}
+#upload-zone > div::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  background: linear-gradient(
+    120deg,
+    rgba(229, 62, 62, 0.4),
+    rgba(229, 62, 62, 0.05),
+    rgba(229, 62, 62, 0.3),
+    rgba(229, 62, 62, 0.05),
+    rgba(229, 62, 62, 0.4)
+  );
+  background-size: 300% 300%;
+  animation: borderFlow 4s linear infinite;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  padding: 1px;
+  border-radius: inherit;
+}
+#upload-zone > div > * {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---- 7. 空状态图标脉冲 ---- */
+.empty-state-icon {
+  animation: emptyPulse 3s ease-in-out infinite;
+}
+@keyframes emptyPulse {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50%      { transform: scale(1.06); opacity: 1; }
+}
+
+/* ---- 9. 导航激活项脉冲光点 ---- */
+.nav-item-active > svg.lucide,
+.nav-item-active > i {
+  filter: drop-shadow(0 0 4px rgba(229, 62, 62, 0.5));
+  animation: activePulse 2.2s ease-in-out infinite;
+}
+@keyframes activePulse {
+  0%, 100% { filter: drop-shadow(0 0 3px rgba(229, 62, 62, 0.4)); }
+  50%      { filter: drop-shadow(0 0 8px rgba(229, 62, 62, 0.7)); }
+}
+
+/* ---- 10. 分析旋转器增强 ---- */
+#analyzing-state .animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* ============================================================
+   尊重 prefers-reduced-motion — 关闭所有装饰动画
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  .page-main > section,
+  .page-main > article,
+  .page-frame > header,
+  .page-main > section[class*="bg-card"],
+  .page-main > article[class*="bg-card"],
+  #result-state,
+  #analyzing-state,
+  [id$="-list"] > article[class*="bg-card"] {
+    animation: none !important;
+  }
+  .nav-indicator {
+    transition: none !important;
+  }
+  header[class*="bg-card"] > div > div:first-child i[data-lucide],
+  .empty-state-icon,
+  .nav-item-active > svg.lucide,
+  .nav-item-active > i,
+  #upload-zone > div::before,
+  header[class*="bg-card"]::after {
+    animation: none !important;
+  }
+  button.bg-primary::after,
+  button[class*="bg-primary"]::after {
+    display: none !important;
+  }
+  .page-main > section[class*="bg-card"]:hover,
+  article[class*="bg-card"]:hover {
+    transform: none !important;
+  }
+}
+
+/* ============================================================
+   手机端适配 — ≤ 360px 极窄屏（iPhone SE 1 / 320px Android）
+   压缩 padding、缩小按钮间距、保证触摸目标 ≥ 36px
+   ============================================================ */
+
+/* 节奏垫 / 旋律键按下反馈 */
+@media (max-width: 360px) {
+  /* 页面内边距收紧 */
+  .page-main { padding-left: 0.75rem; padding-right: 0.75rem; }
+  header[class*="bg-card"] { padding-left: 0.75rem; padding-right: 0.75rem; }
+
+  /* 卡片内边距压缩，给内容更多空间 */
+  section[class*="bg-card"] { padding: 0.875rem; }
+  article[class*="bg-card"] { padding: 0.625rem; }
+
+  /* 极窄屏适配 */
+
+  /* 旋律键 — 6 个键在 320px 下 gap 收紧，保证最小可点宽度 */
+  #melody-keys { gap: 0.375rem !important; height: 7rem !important; }
+  .melody-key { font-size: 10px !important; padding-bottom: 0.375rem !important; }
+
+  /* 节奏垫 gap 收紧 */
+  #beat-pads { gap: 0.375rem !important; }
+
+  /* 录音按钮略微缩小，避免在小屏上过大 */
+  .record-pulse { width: 5rem !important; height: 5rem !important; }
+
+  /* 底部导航 — 保证 4 项在 320px 不挤压，字号已 11px 无需再调 */
+  .nav-pill { min-height: 52px; }
+}
+
+/* 触摸设备（无 hover）：放大图标按钮可点区，通过伪元素扩展 hit area
+   而不改变视觉尺寸，桌面端不受影响。 */
+@media (hover: none) and (pointer: coarse) {
+  button[type="button"][class*="rounded-full"][class*="p-2"]::after {
+    content: '';
+    position: absolute;
+    inset: -0.5rem;
+    border-radius: 999px;
+  }
+  button[type="button"][class*="rounded-full"][class*="p-2"] { position: relative; }
+}
+
+/* 横屏（短高度）时压缩顶部留白，避免一屏装不下 */
+@media (max-height: 480px) and (orientation: landscape) {
+  header[class*="bg-card"] { padding-top: 0.5rem; padding-bottom: 0.5rem; }
+  .page-main { padding-top: 0.75rem; padding-bottom: 0.75rem; }
+}
+
+/* ================== 录音板块横屏扩大模式 ================== */
+/* 展开时：录音板块脱离文档流，全屏覆盖，时间轴占满视口宽度 */
+#record-panel.arranger-wide {
+  position: fixed !important;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2147483000; /* 足够高，盖过所有导航/弹窗 */
+  border-radius: 0 !important;
+  border: none !important;
+  padding: 1rem !important;
+  margin: 0 !important;
+  display: flex !important;
+  flex-direction: column;
+  gap: 0.75rem;
+  background: var(--museflow-background);
+  overflow: auto;
+  box-shadow: none !important;
+  max-width: none !important;
+  width: 100vw !important;
+  height: 100dvh !important;
+}
+/* 展开时隐藏页面其他元素，让录音面板独占屏幕 */
+body.in-wide-mode header,
+body.in-wide-mode .app-rail,
+body.in-wide-mode [data-mobile-nav],
+body.in-wide-mode #mode-toggle,
+body.in-wide-mode #text-panel,
+body.in-wide-mode main > section:not(#record-panel) {
+  display: none !important;
+}
+body.in-wide-mode .page-frame,
+body.in-wide-mode main.page-main {
+  background: transparent !important;
+  box-shadow: none !important;
+  border: none !important;
+  max-width: none !important;
+}
+body.in-wide-mode .page-main {
+  padding: 0 !important;
+}
+/* 展开时让 arranger 区域自适应填满剩余高度 */
+#record-panel.arranger-wide #arranger {
+  flex: 1 1 auto;
+  min-height: 200px;
+}
+/* 展开时轨道行更高，方便编辑 */
+#record-panel.arranger-wide .row,
+#record-panel.arranger-wide [data-track-id] {
+  min-height: 56px;
+}
+/* 展开时隐藏提示文字，腾出空间 */
+#record-panel.arranger-wide #tracks-hint {
+  display: none;
+}
+/* 展开时按钮高亮 */
+#wide-toggle-btn.active {
+  background: var(--museflow-primary);
+  color: var(--museflow-primary-foreground);
+}
+
+/* Arranger 滑块样式 */
+#arranger-viewport {
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(229, 62, 62, 0.3) transparent;
+}
+#arranger-viewport::-webkit-scrollbar {
+  height: 6px;
+}
+#arranger-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+#arranger-viewport::-webkit-scrollbar-thumb {
+  background: rgba(229, 62, 62, 0.3);
+  border-radius: 3px;
+}
+#arranger-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 62, 62, 0.5);
+}
+
+#arranger-slider {
+  transition: opacity 0.2s;
+}
+#arranger-slider:hover {
+  opacity: 1 !important;
+}
+#arranger-slider-thumb {
+  min-width: 8px;
+  cursor: grab;
+  user-select: none;
+}
+#arranger-slider-thumb:active {
+  cursor: grabbing;
+  background: var(--museflow-primary) !important;
+}
+
+/* 横屏模式下滑块更大 */
+#record-panel.arranger-wide #arranger-slider {
+  height: 8px;
+}
+
+/* ============================================================
+   交互增强 — 波纹反馈 / 跳动效果 / 激活态分色
+   ============================================================ */
+
+/* 和弦垫 — 按位置加微妙色调背景，建立层次 */
+#chord-pads > button:nth-child(1) { background-image: linear-gradient(135deg, rgba(167, 139, 250, 0.12), transparent); }
+#chord-pads > button:nth-child(2) { background-image: linear-gradient(135deg, rgba(139, 92, 246, 0.10), transparent); }
+#chord-pads > button:nth-child(3) { background-image: linear-gradient(135deg, rgba(124, 58, 237, 0.12), transparent); }
+#chord-pads > button:nth-child(4) { background-image: linear-gradient(135deg, rgba(167, 139, 250, 0.08), transparent); }
+#chord-pads > button:nth-child(5) { background-image: linear-gradient(135deg, rgba(139, 92, 246, 0.10), transparent); }
+#chord-pads > button:nth-child(6) { background-image: linear-gradient(135deg, rgba(124, 58, 237, 0.12), transparent); }
+
+/* 和弦垫按下反馈 — scale */
+#chord-pads > button:active {
+  transform: scale(0.96);
+}
+
+/* BPM 数字 — 播放时跳动，呼应节拍 */
+@keyframes bpmPulse {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.04); }
+}
+body.is-playing #bpm-display {
+  animation: bpmPulse 0.546s ease-in-out infinite;
+  will-change: transform;
+}
+
+/* 计时器 / 时间显示 — 等宽字体 */
+#transport-time, #beats-display {
+  font-variant-numeric: tabular-nums;
+}
+
+/* 鼓垫 / 和弦垫按下波纹 — 从中心扩散的涟漪 */
+.beat-pad, #chord-pads > button {
+  position: relative;
+  overflow: hidden;
+}
+.beat-pad .ripple, #chord-pads > button .ripple {
+  position: absolute;
+  border-radius: 50%;
+  transform: scale(0);
+  animation: ripple 0.5s ease-out;
+  background: rgba(255, 255, 255, 0.4);
+  pointer-events: none;
+}
+@keyframes ripple {
+  to { transform: scale(4); opacity: 0; }
+}
+
+/* 运输控制按钮 — 按下反馈 */
+#transport-stop, #transport-play, #transport-rec {
+  transition: transform 0.12s ease, background-color 0.12s ease;
+}
+#transport-stop:active, #transport-play:active, #transport-rec:active {
+  transform: scale(0.92);
+}
+
+/* 录音按钮激活态 — 脉冲动画 (JS 用 aria-pressed 切换) */
+#transport-rec[aria-pressed="true"], #rec-btn[aria-pressed="true"] {
+  background: var(--museflow-primary) !important;
+  color: var(--museflow-primary-foreground) !important;
+  animation: recordPulse 1.6s cubic-bezier(.2,.8,.2,1) infinite;
+}
+#transport-rec[aria-pressed="true"] i, #rec-btn[aria-pressed="true"] i { color: #fff !important; }
+
+/* 循环播放按钮激活态 */
+#loop-btn[aria-pressed="true"] {
+  background: rgba(52, 211, 153, 0.18) !important;
+  color: #34d399 !important;
+}
+#loop-btn[aria-pressed="true"] i { color: #34d399 !important; }
+
+/* 麦克风按钮激活态 */
+#mic-btn[aria-pressed="true"] {
+  background: rgba(167, 139, 250, 0.18) !important;
+  color: #a78bfa !important;
+}
+#mic-btn[aria-pressed="true"] i { color: #a78bfa !important; }
+
+/* mode toggle 按钮 — 激活态 */
+.mode-btn[aria-pressed="true"], .voice-btn[aria-pressed="true"], .style-btn[aria-pressed="true"] {
+  background: var(--museflow-card);
+  color: var(--museflow-foreground);
+}
+
+/* 输入控件聚焦 — 简洁 ring */
+input:focus, textarea:focus, select:focus {
+  box-shadow: 0 0 0 2px rgba(229, 62, 62, 0.35);
+}
+
+/* 音轨行 — 鼠标悬停时左侧出现指示色条 */
+[data-track-id]:hover {
+  background: linear-gradient(90deg, rgba(229, 62, 62, 0.06), transparent 60%);
+}
+
+/* 时间标尺 — 强化主刻度 */
+#time-ruler > div:nth-child(4n+1) {
+  border-left: 1px solid rgba(229, 62, 62, 0.45) !important;
+  color: var(--museflow-foreground) !important;
+}
+
+/* 捕捉卡片 hover — 微抬起，桌面端 */
+@media (hover: hover) and (pointer: fine) {
+  article[class*="bg-card"]:hover {
+    transform: translateY(-1px);
+    transition: transform 0.2s ease;
+  }
+}
+
+/* 模式切换 (录音 / 文字) — 激活项 */
+#mode-toggle button[aria-pressed="true"] {
+  background: linear-gradient(135deg, var(--museflow-primary), var(--museflow-primary-600)) !important;
+  color: var(--museflow-primary-foreground) !important;
+}
+
+/* 保存 / 导出主按钮 */
+#save-project-btn {
+  background-image: linear-gradient(135deg, #e53e3e, #c53030);
+}
+
+/* 空状态 — 居中徽标 */
+#captures-list:empty::before {
+  content: '♪';
+  display: block;
+  font-size: 36px;
+  font-weight: 200;
+  color: var(--museflow-neutral-500);
+  text-align: center;
+  padding: 28px 0 12px;
+  opacity: 0.5;
+}
+#captures-list:empty::after {
+  content: '尚无内容 — 开始你的第一段录音';
+  display: block;
+  text-align: center;
+  font-size: 12px;
+  color: var(--museflow-muted-foreground);
+  opacity: 0.7;
+  padding-bottom: 16px;
+}
+
+/* 滚动条 — 主色调 */
+::-webkit-scrollbar-thumb {
+  background: rgba(229, 62, 62, 0.35);
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 62, 62, 0.55);
+}
+
+/* prefers-reduced-motion — 关闭跳动类动画 */
+@media (prefers-reduced-motion: reduce) {
+  body.is-playing #bpm-display,
+  #play-btn { animation: none !important; }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "museflow",
+  "version": "1.0.0",
+  "description": "MuseFlow 音乐灵感工作室 — 捕捉旋律、管理小样、写下歌词、即兴创作",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host",
+    "build": "vite build",
+    "preview": "vite preview --host"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.3.1",
+    "tailwindcss": "^4.3.1",
+    "vite": "^7.1.0"
+  },
+  "dependencies": {
+    "lucide": "^1.8.0"
+  }
+}

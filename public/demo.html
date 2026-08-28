@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>试听 Demo - MuseFlow</title>
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+<body class="min-h-screen font-sans antialiased bg-background text-foreground grain-bg">
+  <div class="max-w-3xl mx-auto px-4 py-10">
+    <header class="mb-8 flex items-center gap-3">
+      <a href="/index.html" class="w-10 h-10 rounded-full bg-muted hover:bg-muted/70 flex items-center justify-center transition-colors duration-150" title="返回灵感" aria-label="返回灵感">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-5 h-5 text-foreground"><path d="m15 18-6-6 6-6"/></svg>
+      </a>
+      <div class="w-12 h-12 rounded-2xl bg-primary/15 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="w-6 h-6 text-primary"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+      </div>
+      <div>
+        <h1 class="text-xl font-semibold">Demo Loop 试听</h1>
+        <p class="text-sm text-muted-foreground">110 BPM · 2 个循环周期 · 立体声 WAV</p>
+      </div>
+    </header>
+
+    <section class="bg-card border border-border rounded-2xl p-6 shadow-sm">
+      <div class="flex items-center justify-between mb-4">
+        <div>
+          <h2 class="text-base font-medium">Demo_Loop_110BPM.wav</h2>
+          <p class="text-xs text-muted-foreground mt-1">4.36 秒 · 44100 Hz · 16-bit · 752 KB</p>
+        </div>
+        <a href="/Demo_Loop_110BPM.wav" download class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          下载
+        </a>
+      </div>
+
+      <!-- 大播放按钮 -->
+      <div class="flex flex-col items-center gap-4 py-6">
+        <button id="big-play" class="w-20 h-20 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg hover:scale-105 active:scale-95 transition-all duration-200">
+          <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" class="ml-1"><polygon points="6 3 20 12 6 21"/></svg>
+          <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="currentColor" class="hidden"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+        <p id="play-status" class="text-sm text-muted-foreground">点击播放</p>
+      </div>
+
+      <!-- 原生 audio 控件（备用） -->
+      <audio id="audio-el" controls preload="auto" src="/Demo_Loop_110BPM.wav" class="w-full h-12 rounded-xl bg-muted mt-2">
+        您的浏览器不支持 audio 元素。
+      </audio>
+
+      <div class="mt-5 grid grid-cols-2 gap-3 text-xs">
+        <div class="bg-muted rounded-xl p-3">
+          <p class="text-muted-foreground mb-1">节奏型</p>
+          <p class="font-mono text-foreground/90 leading-relaxed">Kick: 拍1 · 拍3<br/>Hi-hat: 拍2<br/>Snare: 拍4</p>
+        </div>
+        <div class="bg-muted rounded-xl p-3">
+          <p class="text-muted-foreground mb-1">和声</p>
+          <p class="font-mono text-foreground/90 leading-relaxed">C maj (拍1起)<br/>F maj (拍4起)</p>
+        </div>
+      </div>
+    </section>
+
+    <footer class="mt-8 text-center text-xs text-muted-foreground">
+      <a href="/index.html" class="underline hover:text-primary">灵感</a> · <a href="/lyrics.html" class="underline hover:text-primary">歌词</a> · <a href="/demos.html" class="underline hover:text-primary">小样</a>
+    </footer>
+  </div>
+
+  <script>
+    const audio = document.getElementById('audio-el');
+    const bigPlay = document.getElementById('big-play');
+    const playIcon = document.getElementById('play-icon');
+    const pauseIcon = document.getElementById('pause-icon');
+    const status = document.getElementById('play-status');
+
+    let isPlaying = false;
+
+    function updateUI(playing) {
+      isPlaying = playing;
+      playIcon.classList.toggle('hidden', playing);
+      pauseIcon.classList.toggle('hidden', !playing);
+      status.textContent = playing ? '播放中...' : (audio.ended ? '已结束，点击重播' : '点击播放');
+    }
+
+    bigPlay.addEventListener('click', () => {
+      if (isPlaying) {
+        audio.pause();
+        updateUI(false);
+      } else {
+        audio.currentTime = 0;
+        audio.play().then(() => updateUI(true)).catch(e => {
+          status.textContent = '播放被阻止，请点击下方播放器';
+          console.warn('Autoplay blocked:', e);
+        });
+      }
+    });
+
+    audio.addEventListener('play', () => updateUI(true));
+    audio.addEventListener('pause', () => updateUI(false));
+    audio.addEventListener('ended', () => updateUI(false));
+
+    // 页面加载后尝试自动播放
+    window.addEventListener('load', () => {
+      audio.play().then(() => updateUI(true)).catch(() => {
+        status.textContent = '点击上方按钮播放';
+      });
+    });
+  </script>
+</body>
+</html>

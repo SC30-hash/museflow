@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="zh" class="light" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#050505" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="MuseFlow" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <title>歌词 - MuseFlow</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Sora:wght@600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/styles/main.css" />
+</head>
+<body class="min-h-screen font-sans antialiased bg-background text-foreground grain-bg">
+  <div id="app-shell" class="app-shell">
+    <div class="page-frame bg-background relative z-10">
+      <header class="px-4 pb-3 border-b border-border bg-card/50 sticky top-0 z-10 backdrop-blur" style="padding-top: var(--museflow-safe-top);">
+        <div class="flex items-end justify-between">
+          <div class="flex items-center gap-2">
+            <i data-lucide="align-left" class="w-6 h-6 text-primary"></i>
+            <div>
+              <h1 class="text-base font-semibold leading-tight">歌词</h1>
+              <p class="text-xs text-muted-foreground leading-tight">写下你的句子</p>
+            </div>
+          </div>
+          <button type="button" id="new-btn" class="p-2 rounded-full hover:bg-muted transition-colors duration-150" aria-label="新建">
+            <i data-lucide="plus" class="w-5 h-5 text-muted-foreground"></i>
+          </button>
+        </div>
+      </header>
+
+      <main class="page-main px-4 py-5 space-y-5">
+        <!-- Quick editor -->
+        <section class="bg-card border border-border rounded-2xl p-4 shadow-sm">
+          <label for="lyric-title" class="block text-sm font-medium mb-2">新增手稿</label>
+          <input id="lyric-title" type="text" placeholder="标题（可留空）" class="w-full rounded-xl border border-input bg-input px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring mb-2" />
+          <label for="lyric-line" class="sr-only">歌词内容</label>
+          <textarea id="lyric-line" rows="3" placeholder="第一句歌词…" class="w-full resize-y rounded-xl border border-input bg-input px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"></textarea>
+          <div class="mt-3 flex items-center justify-between">
+            <span class="text-xs text-muted-foreground" id="auto-save-label">自动保存</span>
+            <button type="button" id="save-btn" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">保存</button>
+          </div>
+        </section>
+
+        <!-- Lyrics list -->
+        <section>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-base font-semibold flex items-center gap-1.5"><i data-lucide="file-text" class="w-4 h-4 text-primary"></i>我的手稿</h2>
+            <div class="flex items-center gap-2">
+              <button type="button" id="lyrics-toggle-select" class="text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <i data-lucide="check-square" class="w-3.5 h-3.5 inline align-middle mr-1"></i>多选
+              </button>
+              <span id="lyrics-count" class="text-xs text-muted-foreground"></span>
+            </div>
+          </div>
+          <!-- 多选工具栏 -->
+          <div id="lyrics-select-bar" class="hidden mb-3 flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border">
+            <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
+              <input type="checkbox" id="lyrics-select-all" class="accent-primary rounded-sm" />
+              <span>全选</span>
+            </label>
+            <span class="text-xs text-muted-foreground" id="lyrics-selected-count">已选 0 项</span>
+            <div class="ml-auto flex items-center gap-1.5">
+              <button type="button" id="lyrics-batch-delete" class="px-2.5 py-1 rounded-md bg-destructive/15 text-destructive text-xs font-medium flex items-center gap-1 hover:bg-destructive/25 transition-colors" disabled>
+                <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>批量删除
+              </button>
+              <button type="button" id="lyrics-select-cancel" class="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">取消</button>
+            </div>
+          </div>
+          <div class="space-y-3" id="lyrics-list">
+            <!-- populated by JS -->
+          </div>
+        </section>
+      </main>
+      <!-- nav mounted by JS -->
+    </div>
+  </div>
+
+  <!-- Editor modal -->
+  <div id="editor-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" data-close></div>
+    <div class="absolute inset-x-0 bottom-0 md:inset-0 m-auto md:max-w-lg md:rounded-2xl rounded-t-2xl bg-card border border-border shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-base font-semibold">编辑歌词</h3>
+        <button type="button" class="p-2 rounded-full hover:bg-muted" data-close aria-label="关闭"><i data-lucide="x" class="w-5 h-5 text-muted-foreground"></i></button>
+      </div>
+      <input id="edit-title" type="text" placeholder="标题" class="w-full rounded-xl border border-input bg-input px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring mb-2" />
+      <textarea id="edit-body" rows="8" placeholder="写下你的歌词…" class="w-full resize-y rounded-xl border border-input bg-input px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"></textarea>
+      <div class="mt-4 flex justify-end gap-2">
+        <button type="button" class="px-4 py-2 rounded-lg border border-border text-sm" data-close>取消</button>
+        <button type="button" id="edit-save" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <!-- 确认弹框（通用） -->
+  <div id="confirm-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4" style="display: none;">
+    <div class="w-full max-w-sm bg-card border border-border rounded-2xl shadow-xl p-5">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="w-10 h-10 shrink-0 rounded-full bg-destructive/15 flex items-center justify-center">
+          <i data-lucide="alert-triangle" class="w-5 h-5 text-destructive"></i>
+        </div>
+        <div class="flex-1 min-w-0">
+          <h3 class="text-base font-semibold mb-1">确认操作</h3>
+          <p id="confirm-message" class="text-sm text-muted-foreground leading-relaxed"></p>
+        </div>
+      </div>
+      <div class="flex justify-end gap-2">
+        <button type="button" id="confirm-cancel" class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors">取消</button>
+        <button type="button" id="confirm-ok" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/pages/lyrics.js"></script>
+</body>
+</html>
