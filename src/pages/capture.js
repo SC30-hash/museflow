@@ -1836,7 +1836,11 @@ function doSearch() {
   refreshIcons();
 }
 
-document.getElementById('search-btn')?.addEventListener('click', openSearchModal);
+// search-btn is dynamically created by nav.js after this module loads,
+// so we use event delegation instead of binding directly to the element.
+document.addEventListener('click', (e) => {
+  if (e.target.closest('#search-btn')) openSearchModal();
+});
 document.getElementById('search-close')?.addEventListener('click', closeSearchModal);
 document.getElementById('search-cancel')?.addEventListener('click', closeSearchModal);
 document.getElementById('search-confirm')?.addEventListener('click', doSearch);

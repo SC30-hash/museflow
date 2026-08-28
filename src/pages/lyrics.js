@@ -105,9 +105,12 @@ saveBtn?.addEventListener('click', () => {
   render();
 });
 
-newBtn?.addEventListener('click', () => {
-  titleInput.focus();
-  bodyInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+// new-btn is dynamically created by nav.js after this module loads,
+// so we use event delegation instead of binding directly to the element.
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#new-btn')) return;
+  titleInput?.focus();
+  bodyInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
 // Autosave hint — live character count + "已自动暂存" feedback
