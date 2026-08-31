@@ -261,6 +261,13 @@ export function mountNav(activeKey) {
   showView(activeKey);
   updateHeader(activeKey);
 
+  // updateHeader() replaces #header-icon with a fresh <i> placeholder that
+  // hasn't been processed by lucide yet, so we must re-run createIcons AFTER
+  // updateHeader to actually render the header logo. Without this, the logo
+  // stays blank on initial load and only appears after the first view switch
+  // (switchView already calls createIcons at its end, which masked the bug).
+  createIcons({ icons: lucideIcons });
+
   // Re-position indicator after layout settles
   requestAnimationFrame(() => updateNavIndicator(activeKey));
 }
