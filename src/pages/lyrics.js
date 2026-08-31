@@ -220,7 +220,7 @@ function renderCategoryBar() {
         <i data-lucide="folder" class="w-3.5 h-3.5"></i>
         <span class="max-w-[80px] truncate">${escapeHtml(cat.name)}</span>
         <span class="${active ? 'text-primary-foreground/80' : 'text-muted-foreground'}">${n}</span>
-        <i data-lucide="x" data-cat-delete="${cat.id}" class="w-3 h-3 ml-0.5 opacity-0 group-hover:opacity-60 hover:!opacity-100 hover:!text-destructive transition-opacity"></i>
+        <i data-lucide="x" data-cat-delete="${cat.id}" class="w-3.5 h-3.5 ml-0.5 -mr-1 opacity-50 group-hover:opacity-60 hover:!opacity-100 hover:!text-destructive transition-opacity shrink-0"></i>
       </button>`;
   }
 
