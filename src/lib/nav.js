@@ -19,7 +19,9 @@ function icon(name, cls = 'w-5 h-5 shrink-0') {
   return i;
 }
 
-// ---- Build header action button ----
+// ---- Build header action button(s) ----
+// Always shows a gear/settings button (import/export data),
+// plus an optional view-specific action button before it.
 function buildHeaderAction(actionType) {
   const container = document.getElementById('header-action');
   if (!container) return;
@@ -41,6 +43,14 @@ function buildHeaderAction(actionType) {
     btn.appendChild(icon('plus', 'w-5 h-5 text-muted-foreground'));
     container.appendChild(btn);
   }
+  // Settings gear (import/export data) — present on every view
+  const gear = document.createElement('button');
+  gear.type = 'button';
+  gear.id = 'settings-btn';
+  gear.className = 'p-2 rounded-full hover:bg-muted transition-colors duration-150';
+  gear.setAttribute('aria-label', '数据与设置');
+  gear.appendChild(icon('settings', 'w-5 h-5 text-muted-foreground'));
+  container.appendChild(gear);
 }
 
 // ---- Update header content for a view ----

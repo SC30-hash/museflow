@@ -132,3 +132,37 @@ export const settings = {
   all: () => read(KEYS.settings, { bpm: 110, beats: 4 }),
   save: (s) => write(KEYS.settings, s),
 };
+
+// ---- Import / Export (cross-device sync) ----
+// 导出所有 MuseFlow 数据为一个 JSON 对象（不含音频 blob，blob 已在保存工程时转 dataURL）
+export function exportAll() {
+  const out = {
+    app: 'MuseFlow',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data: {},
+  };
+  for (const [name, key] of Object.entries(KEYS)) {
+    out.data[name] = read(key, null);
+  }
+  return out;
+}
+
+// 从 JSON 对象导入数据，覆盖所有本地数据。返回 { ok, count, message }
+export function importAll(payload) {
+  if (!payload || typeof payload !== 'object') {
+    return { ok: false, count: 0, message: '无效的数据格式' };
+  }
+  if (payload.app !== 'MuseFlow' || !payload.data) {
+    return { ok: false, count: 0, message: '不是 MuseFlow 的备份文件' };
+  }
+  let count = 0;
+  for (const [name, key] of Object.entries(KEYS)) {
+    const v = payload.data[name];
+    if (v !== undefined) {
+      write(key, v);
+      count++;
+    }
+  }
+  return { ok: true, count, message: `已导入 ${count} 项数据` };
+}

@@ -373,6 +373,47 @@
     </div>
   </div>
 
+  <!-- 设置 / 数据迁移 模态框 -->
+  <div id="settings-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" data-close-settings></div>
+    <div class="absolute inset-x-0 bottom-0 md:inset-0 m-auto md:max-w-md md:rounded-2xl rounded-t-2xl bg-card border border-border shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="text-base font-semibold flex items-center gap-2">
+          <i data-lucide="settings" class="w-4 h-4 text-primary"></i>
+          数据与设置
+        </h3>
+        <button type="button" class="p-2 rounded-full hover:bg-muted" data-close-settings aria-label="关闭"><i data-lucide="x" class="w-5 h-5 text-muted-foreground"></i></button>
+      </div>
+
+      <p class="text-xs text-muted-foreground mb-5 leading-relaxed">灵感、小样、歌词、工程保存在当前浏览器的本地存储里。换设备或换浏览器前，建议导出备份；到新设备后再导入恢复。</p>
+
+      <!-- 导出区 -->
+      <div class="rounded-xl border border-border bg-muted/30 p-4 mb-4">
+        <div class="flex items-start gap-3 mb-3">
+          <i data-lucide="download" class="w-4 h-4 text-primary shrink-0 mt-0.5"></i>
+          <div class="flex-1">
+            <div class="text-sm font-medium">导出备份</div>
+            <div class="text-xs text-muted-foreground">把所有数据打包成 .json 文件下载</div>
+          </div>
+        </div>
+        <button type="button" id="export-all-btn" class="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 transition-all active:scale-[.99]">导出所有数据</button>
+      </div>
+
+      <!-- 导入区 -->
+      <div class="rounded-xl border border-border bg-muted/30 p-4">
+        <div class="flex items-start gap-3 mb-3">
+          <i data-lucide="upload" class="w-4 h-4 text-primary shrink-0 mt-0.5"></i>
+          <div class="flex-1">
+            <div class="text-sm font-medium">导入备份</div>
+            <div class="text-xs text-muted-foreground">从 .json 备份恢复数据（会覆盖当前数据）</div>
+          </div>
+        </div>
+        <input type="file" id="import-file-input" accept="application/json,.json" class="hidden" />
+        <button type="button" id="import-all-btn" class="w-full py-2.5 rounded-lg border border-border text-sm font-medium hover:bg-muted transition-colors">选择备份文件导入</button>
+      </div>
+    </div>
+  </div>
+
   <script type="module" src="/src/app.js"></script>
 </body>
 </html>
