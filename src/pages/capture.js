@@ -851,8 +851,29 @@ tracksBody.addEventListener('lostpointercapture', (e) => {
 // 双击剪切已移除（和三次点击删除冲突，浏览器三次连点会触发 dblclick）。
 // splitClipAtOffset 函数保留备用，未来如需恢复剪切可重新挂 dblclick 监听器。
 
-// 通道条按钮（M / S / R / X）+ 三次点击删除 clip 的 click 处理
+// 通道条按钮（M / S / R / X）+ 三次点击删除 clip + 剪切模式 的 click 处理
 tracksBody.addEventListener('click', (e) => {
+  // === 剪切模式优先处理：点击 clip 在点击位置剪开，保持剪切模式以便连续剪切 ===
+  // 退出方式：再点一次剪切按钮 或 按 ESC
+  if (splitMode) {
+    const splitClipEl = e.target.closest('[data-clip-id]');
+    if (!splitClipEl) return;  // 点击空白处：保持剪切模式，不退出
+    if (transportState !== 'idle') { setSplitMode(false); window.MFToast('先停止再剪切'); return; }
+    const splitCid = splitClipEl.dataset.clipId;
+    const splitFound = findClip(splitCid);
+    if (!splitFound) return;
+    const { clip: splitClip } = splitFound;
+    const splitRect = splitClipEl.getBoundingClientRect();
+    const localX = Math.max(0, Math.min(splitRect.width, e.clientX - splitRect.left));
+    const ratio = splitRect.width > 0 ? localX / splitRect.width : 0.5;
+    const inSec = ratio * splitClip.duration;
+    splitClipEl.classList.add('press-flash');
+    setTimeout(() => { if (splitClipEl.isConnected) splitClipEl.classList.remove('press-flash'); }, 150);
+    splitClipAtOffset(splitCid, inSec);
+    window.MFToast('已剪开（继续点 clip 剪切，或按 ESC 退出）');
+    return;
+  }
+
   // === 三次点击删除 clip（替代原长按删除） ===
   // 三次连续点击同一个 clip（间隔 < TRIPLE_WINDOW_MS）即触发删除
   const clipEl = e.target.closest('[data-clip-id]');
@@ -1261,6 +1282,40 @@ document.getElementById('add-track-btn')?.addEventListener('click', () => {
     clips: [],
   });
   renderTracks();
+});
+
+// ================== Split clip (剪刀按钮模式) ==================
+// 点击"剪切"按钮启用剪切模式：arranger 光标变剪刀，按钮高亮；
+// 下次点击 clip 时按点击位置剪开，然后自动退出剪切模式；
+// 点击空白处或 ESC 也退出剪切模式。
+let splitMode = false;
+const splitBtn = document.getElementById('split-clip-btn');
+const arrangerEl = document.getElementById('arranger');
+
+function setSplitMode(on) {
+  splitMode = on;
+  if (splitBtn) {
+    splitBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    splitBtn.classList.toggle('bg-primary', on);
+    splitBtn.classList.toggle('text-primary-foreground', on);
+    splitBtn.classList.toggle('text-muted-foreground', !on);
+  }
+  if (arrangerEl) {
+    arrangerEl.classList.toggle('split-cursor', on);
+  }
+  if (on) {
+    window.MFToast('剪切模式：点击 clip 在点击位置剪开');
+  }
+}
+
+splitBtn?.addEventListener('click', () => {
+  if (transportState !== 'idle') { window.MFToast('先停止再剪切'); return; }
+  setSplitMode(!splitMode);
+});
+
+// ESC 退出剪切模式
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && splitMode) setSplitMode(false);
 });
 
 // ================== Backing import（支持多文件 / 多伴奏轨，每条伴奏 = 一条独立轨）==================

@@ -285,6 +285,13 @@
     60%    { transform: translateX(-3px); }
     80%    { transform: translateX(3px); }
   }
+  /* 剪切模式：arranger 光标变十字，clip 上也是十字，提示用户点击位置即为剪切点 */
+  #arranger.split-cursor,
+  #arranger.split-cursor [data-clip-id],
+  #arranger.split-cursor #tracks-body,
+  #arranger.split-cursor #tracks-host {
+    cursor: crosshair !important;
+  }
   /* Clip 内部波形容器：禁止响应 pointer（让手势直接命中 clip 外层） */
   .waveform-wrap { pointer-events: none; }
   .waveform-wrap .wave-bar { display: block; opacity: 0.85; }
