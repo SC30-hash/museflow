@@ -406,7 +406,22 @@
         <button type="button" class="p-2 rounded-full hover:bg-muted" data-close-settings aria-label="关闭"><i data-lucide="x" class="w-5 h-5 text-muted-foreground"></i></button>
       </div>
 
-      <p class="text-xs text-muted-foreground mb-5 leading-relaxed">灵感、小样、歌词、工程保存在当前浏览器的本地存储里。换设备或换浏览器前，建议导出备份；到新设备后再导入恢复。</p>
+      <p class="text-xs text-muted-foreground mb-4 leading-relaxed">灵感、小样、歌词、工程保存在当前浏览器的本地存储里。换设备或换浏览器前，建议导出备份；到新设备后再导入恢复。</p>
+
+      <!-- 存储用量提示 -->
+      <div id="quota-card" class="rounded-xl border border-border bg-muted/30 p-4 mb-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="flex items-center gap-2">
+            <i data-lucide="database" class="w-4 h-4 text-muted-foreground"></i>
+            <span class="text-sm font-medium">存储用量</span>
+          </div>
+          <span id="quota-text" class="text-xs text-muted-foreground">计算中…</span>
+        </div>
+        <div class="h-1.5 bg-muted rounded-full overflow-hidden">
+          <div id="quota-bar" class="h-full bg-primary transition-all duration-500" style="width:0%"></div>
+        </div>
+        <p id="quota-hint" class="text-xs text-muted-foreground mt-2 hidden">——</p>
+      </div>
 
       <!-- 导出区 -->
       <div class="rounded-xl border border-border bg-muted/30 p-4 mb-4">
