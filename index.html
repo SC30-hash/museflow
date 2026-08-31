@@ -50,8 +50,8 @@
 
         <!-- Record card -->
         <section id="record-panel" class="bg-card border border-border rounded-2xl p-3 flex flex-col gap-3 shadow-sm">
-          <!-- Row 1: tools (left) + save + wide toggle (right) -->
-          <div class="flex items-center gap-1.5 flex-wrap">
+          <!-- Row 1: tools (left) + save (right) -->
+          <div class="flex items-center gap-1.5">
             <button type="button" id="import-backing-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="导入伴奏">
               <i data-lucide="music-4" class="w-3.5 h-3.5"></i><span>导入伴奏</span>
             </button>
@@ -65,16 +65,17 @@
             <button type="button" id="save-project-btn" class="px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-colors duration-150" aria-label="保存工程">
               <i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存工程</span>
             </button>
-            <button type="button" id="wide-toggle-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="横屏扩大" aria-pressed="false">
-              <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i><span>横屏</span>
-            </button>
           </div>
-          <!-- Row 2: transport -->
+          <!-- Row 2: transport (left) + wide toggle (right) -->
           <div class="flex items-center gap-1.5">
             <button type="button" id="transport-stop" class="w-8 h-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="停止"><i data-lucide="square" class="w-4 h-4"></i></button>
             <button type="button" id="transport-play" class="w-8 h-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="播放"><i data-lucide="play" class="w-4 h-4 ml-0.5"></i></button>
             <button type="button" id="transport-rec" class="w-8 h-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="录音" aria-pressed="false"><i data-lucide="circle" class="w-4 h-4"></i></button>
             <div class="ml-2 px-2.5 py-1 rounded-md bg-muted text-xs font-mono tabular-nums text-muted-foreground" id="transport-time">00:00.00</div>
+            <div class="flex-1 min-w-0"></div>
+            <button type="button" id="wide-toggle-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="横屏扩大" aria-pressed="false">
+              <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i><span>横屏</span>
+            </button>
           </div>
           <div class="rounded-xl border border-border bg-muted/30 relative" id="arranger">
             <div id="arranger-viewport" class="overflow-x-auto overflow-y-hidden">
