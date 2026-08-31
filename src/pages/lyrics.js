@@ -194,19 +194,8 @@ function renderCategoryBar() {
       <span class="${allActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}">${totalAll}</span>
     </button>`;
 
-  // 未分类
-  if (totalUncat > 0 || cats.length > 0) {
-    const uncatActive = activeFilter === 'uncat';
-    html += `
-      <button type="button" data-cat-filter="uncat"
-        class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
-          uncatActive ? 'bg-primary text-primary-foreground shadow-sm' : 'bg-muted text-muted-foreground hover:text-foreground hover:bg-muted/80'
-        }">
-        <i data-lucide="folder" class="w-3.5 h-3.5"></i>
-        未分类
-        <span class="${uncatActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}">${totalUncat}</span>
-      </button>`;
-  }
+  // 未分类 chip 已隐藏（手稿仍可通过「全部」访问；若已选中未分类则回退到全部）
+  if (activeFilter === 'uncat') activeFilter = null;
 
   // 用户分类
   for (const cat of cats) {
