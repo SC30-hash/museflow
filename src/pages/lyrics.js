@@ -4,6 +4,48 @@
 import { refreshIcons } from '../lib/nav.js';
 import { lyrics, categories } from '../lib/store.js';
 
+// ================== 撤销/重做管理器 ==================
+function createUndoManager(maxSize = 50) {
+  const undoStacks = { title: [], body: [] };
+  const redoStacks = { title: [], body: [] };
+  let timers = {};
+  function push(field, value) {
+    clearTimeout(timers[field]);
+    timers[field] = setTimeout(() => {
+      const stack = undoStacks[field];
+      if (stack[stack.length - 1] !== value) {
+        stack.push(value);
+        if (stack.length > maxSize) stack.shift();
+      }
+      // 新输入清空 redo 栈
+      redoStacks[field] = [];
+    }, 400);
+  }
+  function undo(field) {
+    clearTimeout(timers[field]);
+    const stack = undoStacks[field];
+    if (stack.length <= 1) return null;
+    redoStacks[field].push(stack.pop());
+    return stack[stack.length - 1];
+  }
+  function redo(field) {
+    const uStack = undoStacks[field];
+    const rStack = redoStacks[field];
+    if (rStack.length === 0) return null;
+    const val = rStack.pop();
+    uStack.push(val);
+    return val;
+  }
+  function init(field, value) {
+    clearTimeout(timers[field]);
+    undoStacks[field] = [value];
+    redoStacks[field] = [];
+  }
+  function canUndo(field) { return undoStacks[field].length > 1; }
+  function canRedo(field) { return redoStacks[field].length > 0; }
+  return { push, undo, redo, init, canUndo, canRedo };
+}
+
 const toastEl = document.getElementById('toast');
 let toastTimer = null;
 window.MFToast = (msg) => {
@@ -19,11 +61,9 @@ const saveBtn = document.getElementById('save-btn');
 const newBtn = document.getElementById('new-btn');
 const listEl = document.getElementById('lyrics-list');
 const countEl = document.getElementById('lyrics-count');
-const autoLabel = document.getElementById('auto-save-label');
 
 // 分类筛选栏 + 新建分类按钮
 const catBar = document.getElementById('lyric-cat-bar');
-const newCatQuickBtn = document.getElementById('new-cat-quick');
 
 // 快速保存时的分类选择器
 const newLyricCatBtn = document.getElementById('new-lyric-cat-btn');
@@ -34,6 +74,8 @@ const newLyricCatMenu = document.getElementById('new-lyric-cat-menu');
 let activeFilter = null;
 // 快速保存时默认的分类
 let defaultNewCatId = null;
+// 下拉菜单内是否处于"新建分类"输入状态
+let menuCreatingCat = false;
 
 // ================== 确认弹框（通用） ==================
 const confirmModal = document.getElementById('confirm-modal');
@@ -188,11 +230,12 @@ function renderCategoryBar() {
       class="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-all border border-dashed border-border">
       <i data-lucide="plus" class="w-3.5 h-3.5"></i>新建
     </button>
-    <span data-cat-new-input-wrap class="hidden shrink-0 flex items-center gap-1">
+    <span data-cat-new-input-wrap class="hidden shrink-0 flex items-center">
       <input type="text" data-cat-new-input maxlength="20" placeholder="分类名"
-        class="w-24 rounded-full border border-input bg-input px-2.5 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
-      <button type="button" data-cat-new-save class="p-1 rounded-full hover:bg-muted"><i data-lucide="check" class="w-3.5 h-3.5 text-primary"></i></button>
-      <button type="button" data-cat-new-cancel class="p-1 rounded-full hover:bg-muted"><i data-lucide="x" class="w-3.5 h-3.5 text-muted-foreground"></i></button>
+        class="w-28 rounded-full border border-input bg-input pl-3 pr-7 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+      <button type="button" data-cat-new-save class="-ml-6 flex items-center justify-center w-5 h-5 rounded-full bg-primary text-primary-foreground hover:opacity-90 active:scale-95 transition-all">
+        <i data-lucide="check" class="w-3 h-3"></i>
+      </button>
     </span>`;
 
   catBar.innerHTML = html;
@@ -230,11 +273,23 @@ function renderNewLyricCatMenu() {
         ${active ? '<i data-lucide="check" class="w-3.5 h-3.5 ml-auto"></i>' : ''}
       </button>`;
   }
-  html += `
-    <div class="h-px bg-border my-1"></div>
-    <button type="button" data-pick-cat-new class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted transition-colors text-muted-foreground">
-      <i data-lucide="plus" class="w-3.5 h-3.5"></i>新建分类…
-    </button>`;
+  if (menuCreatingCat) {
+    html += `
+      <div class="h-px bg-border my-1"></div>
+      <div class="px-2 py-1.5 relative flex items-center">
+        <input type="text" data-menu-cat-new-input maxlength="20" placeholder="分类名"
+          class="w-full rounded-md border border-input bg-input pl-2 pr-8 py-1.5 text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring" />
+        <button type="button" data-menu-cat-new-save class="absolute right-0.5 top-1/2 -translate-y-1/2 flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground hover:opacity-90 active:scale-95 transition-all">
+          <i data-lucide="check" class="w-3.5 h-3.5"></i>
+        </button>
+      </div>`;
+  } else {
+    html += `
+      <div class="h-px bg-border my-1"></div>
+      <button type="button" data-pick-cat-new class="w-full text-left px-3 py-2 text-xs flex items-center gap-2 hover:bg-muted transition-colors text-muted-foreground">
+        <i data-lucide="plus" class="w-3.5 h-3.5"></i>新建分类…
+      </button>`;
+  }
   newLyricCatMenu.innerHTML = html;
   refreshIcons();
 }
@@ -276,10 +331,11 @@ function renderCardCatMenu(card) {
 
 // ================== 主渲染 ==================
 let editingId = null;
-const modal = document.getElementById('editor-modal');
-const editTitle = document.getElementById('edit-title');
-const editBody = document.getElementById('edit-body');
-const editSave = document.getElementById('edit-save');
+const editorFullscreen = document.getElementById('editor-fullscreen');
+const editFsTitle = document.getElementById('edit-fs-title');
+const editFsBody = document.getElementById('edit-fs-body');
+const editFsSave = document.getElementById('editor-fs-save');
+const editFsBack = document.getElementById('editor-fs-back');
 
 function render() {
   renderCategoryBar();
@@ -380,15 +436,42 @@ document.addEventListener('click', (e) => {
   bodyInput?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
-// Autosave hint
-let autosaveTimer = null;
-function scheduleAutosave() {
-  autoLabel.textContent = '编辑中…';
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => { autoLabel.textContent = '已自动暂存'; }, 600);
-}
-bodyInput?.addEventListener('input', scheduleAutosave);
-titleInput?.addEventListener('input', scheduleAutosave);
+// ================== 快速编辑器撤销/重做 ==================
+const quickUndo = document.getElementById('quick-undo');
+const quickRedo = document.getElementById('quick-redo');
+const quickUndoMgr = createUndoManager();
+// 初始化
+quickUndoMgr.init('title', titleInput?.value || '');
+quickUndoMgr.init('body', bodyInput?.value || '');
+// 输入时记录历史
+titleInput?.addEventListener('input', () => quickUndoMgr.push('title', titleInput.value));
+bodyInput?.addEventListener('input', () => quickUndoMgr.push('body', bodyInput.value));
+// 撤销按钮
+quickUndo?.addEventListener('click', () => {
+  const t = quickUndoMgr.undo('title');
+  const b = quickUndoMgr.undo('body');
+  let done = false;
+  if (t !== null && titleInput) { titleInput.value = t; done = true; }
+  if (b !== null && bodyInput) { bodyInput.value = b; done = true; }
+  if (done) window.MFToast('已撤销');
+});
+// 重做按钮
+quickRedo?.addEventListener('click', () => {
+  const t = quickUndoMgr.redo('title');
+  const b = quickUndoMgr.redo('body');
+  let done = false;
+  if (t !== null && titleInput) { titleInput.value = t; done = true; }
+  if (b !== null && bodyInput) { bodyInput.value = b; done = true; }
+  if (done) window.MFToast('已重做');
+});
+// Ctrl/Cmd+Z 撤销, Shift+Z 重做
+document.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+  if (document.activeElement !== titleInput && document.activeElement !== bodyInput) return;
+  e.preventDefault();
+  if (e.shiftKey) quickRedo?.click();
+  else quickUndo?.click();
+});
 
 // Ctrl/Cmd+Enter to save
 bodyInput?.addEventListener('keydown', (e) => {
@@ -407,26 +490,18 @@ catBar?.addEventListener('click', async (e) => {
   }
   const newInput = e.target.closest('[data-cat-new-input]');
   const saveNew = e.target.closest('[data-cat-new-save]');
-  const cancelNew = e.target.closest('[data-cat-new-cancel]');
-  if (newInput || saveNew) {
+  if (saveNew) {
     const val = catBar.querySelector('[data-cat-new-input]')?.value?.trim();
-    if (saveNew && val) {
+    if (val) {
       const cat = categories.add(val);
       window.MFToast(`已创建分类「${cat.name}」`);
       defaultNewCatId = cat.id;
       activeFilter = cat.id;
     }
-    // 收起新建区
     const wrap = catBar.querySelector('[data-cat-new-input-wrap]');
     if (wrap) { wrap.classList.add('hidden'); wrap.querySelector('input').value = ''; }
     catBar.querySelector('[data-cat-new-open]')?.classList.remove('hidden');
     render();
-    return;
-  }
-  if (cancelNew) {
-    const wrap = catBar.querySelector('[data-cat-new-input-wrap]');
-    if (wrap) { wrap.classList.add('hidden'); wrap.querySelector('input').value = ''; }
-    catBar.querySelector('[data-cat-new-open]')?.classList.remove('hidden');
     return;
   }
 
@@ -458,12 +533,33 @@ catBar?.addEventListener('click', async (e) => {
   }
 });
 
-// 新建分类 input 回车确认
+// 新建分类 input 回车确认 / Escape 取消
 catBar?.addEventListener('keydown', (e) => {
   const input = e.target.closest('[data-cat-new-input]');
   if (!input) return;
   if (e.key === 'Enter') { e.preventDefault(); catBar.querySelector('[data-cat-new-save]')?.click(); }
-  else if (e.key === 'Escape') { e.preventDefault(); catBar.querySelector('[data-cat-new-cancel]')?.click(); }
+  else if (e.key === 'Escape') {
+    e.preventDefault();
+    const wrap = catBar.querySelector('[data-cat-new-input-wrap]');
+    if (wrap) { wrap.classList.add('hidden'); input.value = ''; }
+    catBar.querySelector('[data-cat-new-open]')?.classList.remove('hidden');
+  }
+});
+
+// 新建分类 input 失焦自动收起
+catBar?.addEventListener('focusout', (e) => {
+  const input = e.target.closest('[data-cat-new-input]');
+  if (!input) return;
+  // 延迟检查，避免点击保存按钮时先触发失焦
+  setTimeout(() => {
+    const wrap = catBar.querySelector('[data-cat-new-input-wrap]');
+    if (!wrap || wrap.classList.contains('hidden')) return;
+    if (!wrap.contains(document.activeElement)) {
+      wrap.classList.add('hidden');
+      input.value = '';
+      catBar.querySelector('[data-cat-new-open]')?.classList.remove('hidden');
+    }
+  }, 150);
 });
 
 // ---- 快速保存分类选择器下拉 ----
@@ -471,7 +567,10 @@ newLyricCatBtn?.addEventListener('click', (e) => {
   e.stopPropagation();
   // 关闭所有其他下拉
   document.querySelectorAll('[data-card-cat-menu]:not(.hidden)').forEach((m) => m.classList.add('hidden'));
+  const wasHidden = newLyricCatMenu?.classList.contains('hidden');
   newLyricCatMenu?.classList.toggle('hidden');
+  // 每次打开菜单都重置"新建分类"输入状态
+  if (wasHidden && newLyricCatMenu) { menuCreatingCat = false; renderNewLyricCatMenu(); }
 });
 document.addEventListener('click', (e) => {
   // 点外面关闭
@@ -488,17 +587,60 @@ newLyricCatMenu?.addEventListener('click', (e) => {
   if (btn) {
     const v = btn.dataset.pickCat;
     defaultNewCatId = v === '__none__' ? null : v;
+    menuCreatingCat = false;
     renderNewLyricCatMenu();
     newLyricCatMenu.classList.add('hidden');
     return;
   }
   const newBtn = e.target.closest('[data-pick-cat-new]');
   if (newBtn) {
-    newLyricCatMenu.classList.add('hidden');
-    // 在分类栏上展开新建
-    catBar?.querySelector('[data-cat-new-open]')?.click();
+    menuCreatingCat = true;
+    renderNewLyricCatMenu();
+    // 自动 focus 输入框
+    setTimeout(() => newLyricCatMenu.querySelector('[data-menu-cat-new-input]')?.focus(), 0);
     return;
   }
+  // 菜单内新建分类 — 保存
+  const saveNew = e.target.closest('[data-menu-cat-new-save]');
+  if (saveNew) {
+    const val = newLyricCatMenu.querySelector('[data-menu-cat-new-input]')?.value?.trim();
+    if (val) {
+      const cat = categories.add(val);
+      window.MFToast(`已创建分类「${cat.name}」`);
+      defaultNewCatId = cat.id;
+      activeFilter = cat.id;
+    }
+    menuCreatingCat = false;
+    renderNewLyricCatMenu();
+    newLyricCatMenu.classList.add('hidden');
+    render();
+    return;
+  }
+});
+
+// 菜单内新建分类 — 键盘事件
+newLyricCatMenu?.addEventListener('keydown', (e) => {
+  if (!menuCreatingCat) return;
+  const input = e.target.closest('[data-menu-cat-new-input]');
+  if (!input) return;
+  if (e.key === 'Enter') { e.preventDefault(); newLyricCatMenu.querySelector('[data-menu-cat-new-save]')?.click(); }
+  else if (e.key === 'Escape') {
+    e.preventDefault();
+    menuCreatingCat = false;
+    renderNewLyricCatMenu();
+  }
+});
+
+// 菜单内新建分类 — 失焦自动收起
+newLyricCatMenu?.addEventListener('focusout', (e) => {
+  const input = e.target.closest('[data-menu-cat-new-input]');
+  if (!input || !menuCreatingCat) return;
+  setTimeout(() => {
+    if (!newLyricCatMenu.contains(document.activeElement)) {
+      menuCreatingCat = false;
+      renderNewLyricCatMenu();
+    }
+  }, 150);
 });
 
 // ---- 卡片分类下拉委托 ----
@@ -604,32 +746,67 @@ listEl?.addEventListener('click', (e) => {
 });
 
 // ================== 编辑器 ==================
+const editorFsUndo = document.getElementById('editor-fs-undo');
+const editorFsRedo = document.getElementById('editor-fs-redo');
+const editorUndoMgr = createUndoManager();
 function openEditor(item) {
   editingId = item.id;
-  editTitle.value = item.title;
-  editBody.value = item.body;
-  modal.classList.remove('hidden');
-  editBody.focus();
+  editFsTitle.value = item.title;
+  editFsBody.value = item.body;
+  editorUndoMgr.init('title', item.title);
+  editorUndoMgr.init('body', item.body);
+  editorFullscreen.classList.remove('hidden');
+  editorFullscreen.classList.add('flex');
+  editFsBody.focus();
 }
-function closeModal() {
-  modal.classList.add('hidden');
+function closeEditor() {
+  editorFullscreen.classList.add('hidden');
+  editorFullscreen.classList.remove('flex');
   editingId = null;
 }
-modal?.addEventListener('click', (e) => {
-  if (e.target.matches('[data-close]') || e.target.closest('[data-close]')) closeModal();
+// 全屏编辑器输入记录
+editFsTitle?.addEventListener('input', () => editorUndoMgr.push('title', editFsTitle.value));
+editFsBody?.addEventListener('input', () => editorUndoMgr.push('body', editFsBody.value));
+// 全屏编辑器撤销
+editorFsUndo?.addEventListener('click', () => {
+  const t = editorUndoMgr.undo('title');
+  const b = editorUndoMgr.undo('body');
+  let done = false;
+  if (t !== null) { editFsTitle.value = t; done = true; }
+  if (b !== null) { editFsBody.value = b; done = true; }
+  if (done) window.MFToast('已撤销');
 });
-editSave?.addEventListener('click', () => {
+// 全屏编辑器重做
+editorFsRedo?.addEventListener('click', () => {
+  const t = editorUndoMgr.redo('title');
+  const b = editorUndoMgr.redo('body');
+  let done = false;
+  if (t !== null) { editFsTitle.value = t; done = true; }
+  if (b !== null) { editFsBody.value = b; done = true; }
+  if (done) window.MFToast('已重做');
+});
+// 全屏编辑器 Ctrl/Cmd+Z 撤销, Shift+Z 重做
+editorFullscreen?.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+  e.preventDefault();
+  if (e.shiftKey) editorFsRedo?.click();
+  else editorFsUndo?.click();
+});
+// 全屏子页面保存
+editFsSave?.addEventListener('click', () => {
   if (!editingId) return;
   const list = lyrics.all();
   const item = list.find((x) => x.id === editingId);
   if (!item) return;
-  item.title = editTitle.value.trim() || '未命名歌词';
-  item.body = editBody.value;
+  item.title = editFsTitle.value.trim() || '未命名歌词';
+  item.body = editFsBody.value;
   lyrics.save(list);
-  closeModal();
+  closeEditor();
   window.MFToast('已更新');
   render();
 });
+// 返回按钮
+editFsBack?.addEventListener('click', closeEditor);
 
 function exportLyric(item) {
   const content = `${item.title}\n\n${item.body}\n`;
@@ -647,3 +824,5 @@ function exportLyric(item) {
 
 // Init
 render();
+// 数据从 IndexedDB 加载完成后重新渲染
+window.addEventListener('storeready', render);

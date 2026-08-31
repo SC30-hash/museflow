@@ -27,12 +27,13 @@ function closeSettings() {
 }
 
 // ---- 存储用量进度条 ----
-function renderQuotaInfo() {
-  const info = checkQuota();
+async function renderQuotaInfo() {
   const bar = document.getElementById('quota-bar');
   const text = document.getElementById('quota-text');
   const hint = document.getElementById('quota-hint');
   if (!bar || !text || !hint) return;
+
+  const info = await checkQuota();
 
   // 进度条颜色 + 提示文案
   const barColor = info.level === 'danger'
@@ -43,18 +44,19 @@ function renderQuotaInfo() {
   bar.className = `h-full transition-all duration-500 ${barColor}`;
   bar.style.width = info.usedPercent + '%';
 
-  text.textContent = `${formatBytes(info.usedBytes)} / 5MB (${info.usedPercent}%)`;
+  const quotaStr = formatBytes(info.quotaBytes);
+  text.textContent = `${formatBytes(info.usedBytes)} / ${quotaStr} (${info.usedPercent}%)`;
 
   // 顶部状态图标颜色
   const quotaCard = document.getElementById('quota-card');
-  const icon = quotaCard?.querySelector('[data-lucide="database"]');
-  if (icon) {
+  const dbIcon = quotaCard?.querySelector('[data-lucide="database"]');
+  if (dbIcon) {
     const color = info.level === 'danger'
       ? 'text-red-500'
       : info.level === 'warn'
         ? 'text-amber-500'
         : 'text-muted-foreground';
-    icon.className = `w-4 h-4 ${color}`;
+    dbIcon.setAttribute('class', `w-4 h-4 ${color}`);
   }
 
   // 底部提示
@@ -69,13 +71,13 @@ function renderQuotaInfo() {
 }
 
 // ---- 启动时检查配额，超过 70% 弹一次提醒 ----
-(function startupQuotaCheck() {
+(async function startupQuotaCheck() {
   // 上次提醒时间，避免每次打开都弹窗
   const LAST_REMIND_KEY = 'museflow.lastQuotaRemind';
   const MIN_REMIND_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 小时
 
   try {
-    const info = checkQuota();
+    const info = await checkQuota();
     if (info.level === 'ok') return;
 
     const lastRemind = Number(localStorage.getItem(LAST_REMIND_KEY) || 0);
@@ -86,16 +88,13 @@ function renderQuotaInfo() {
     const toast = window.MFToast;
     const click = () => { openSettings(); };
     if (toast) {
-      // 用 toast + setTimeout 后注入"打开设置"链接式按钮
       toast(info.level === 'danger'
         ? '存储空间即将用完，请导出备份 →'
         : '存储空间已用超过 70%，建议导出备份 →');
-      // 延迟挂载点击打开设置
       setTimeout(() => {
         const toastEl = document.getElementById('toast');
         if (toastEl) toastEl.style.cursor = 'pointer';
       }, 0);
-      // 让用户能点 toast 打开设置：监听一次 toast 点击
       const toastEl = document.getElementById('toast');
       if (toastEl) {
         const handler = () => { click(); toastEl.removeEventListener('click', handler); };

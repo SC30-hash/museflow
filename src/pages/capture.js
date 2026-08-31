@@ -2004,6 +2004,12 @@ renderList();
 // mountNav is called by app.js
 setMode(REC_MODE);
 
+// 数据从 IndexedDB 加载完成后重新渲染（异步初始化时缓存可能还空）
+window.addEventListener('storeready', () => {
+  renderList();
+  renderTracks();
+});
+
 // ================== Arranger 滑块同步 ==================
 function setupArrangerSlider() {
   const viewport = document.getElementById('arranger-viewport');

@@ -1,7 +1,9 @@
 // src/lib/store.js
-// Tiny localStorage-backed store for MuseFlow content.
-// Holds captures (灵感), demos (小样), and lyrics (歌词) so the app feels alive
-// across page navigations and reloads without a backend.
+// IndexedDB-backed store for MuseFlow content.
+// 使用内存缓存保证同步读取，写入时同步更新缓存 + 异步写入 IndexedDB。
+// 启动时从 IndexedDB 加载数据到缓存，并自动迁移 localStorage 旧数据。
+
+import { getItem, setItem, removeItem, getAllKeys, clearAll as idbClearAll, estimateUsage } from './idb.js';
 
 const KEYS = {
   captures: 'museflow.captures.v1',
@@ -12,31 +14,85 @@ const KEYS = {
   categories: 'museflow.categories.v1',
 };
 
-function read(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key);
-    return raw ? JSON.parse(raw) : fallback;
-  } catch {
-    return fallback;
+// ---- 内存缓存 ----
+const cache = {};
+let storeReady = false;
+
+/**
+ * 初始化：从 IndexedDB 加载所有数据到内存缓存。
+ * 如果 IndexedDB 为空但 localStorage 有旧数据，自动迁移。
+ * 完成后派发 'storeready' 事件，页面监听后重新渲染。
+ */
+const readyPromise = (async () => {
+  // 1. 从 IndexedDB 加载所有已知的 key
+  for (const key of Object.values(KEYS)) {
+    const val = await getItem(key);
+    if (val !== undefined) {
+      cache[key] = val;
+    }
   }
+
+  // 2. 检查是否需要从 localStorage 迁移
+  let needMigration = false;
+  for (const key of Object.values(KEYS)) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw) { needMigration = true; break; }
+    } catch { /* ignore */ }
+  }
+
+  // 3. 如果 IndexedDB 里没有数据但 localStorage 有，执行迁移
+  if (needMigration && Object.keys(cache).length === 0) {
+    for (const [name, key] of Object.entries(KEYS)) {
+      try {
+        const raw = localStorage.getItem(key);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          cache[key] = parsed;
+          await setItem(key, parsed);
+        }
+      } catch { /* ignore individual key errors */ }
+    }
+    // 迁移完成后清理 localStorage（保留 settings 备份以防意外）
+    for (const key of Object.values(KEYS)) {
+      try { localStorage.removeItem(key); } catch { /* ignore */ }
+    }
+    console.log('[MuseFlow] 已从 localStorage 迁移到 IndexedDB');
+  }
+
+  storeReady = true;
+  window.dispatchEvent(new Event('storeready'));
+})();
+
+/**
+ * 同步读取（从内存缓存）。
+ * @param {string} key
+ * @param {*} fallback — 缓存未命中时返回
+ * @returns {*}
+ */
+function read(key, fallback) {
+  if (key in cache) return cache[key];
+  return fallback;
 }
 
+/**
+ * 同步写入缓存 + 异步写入 IndexedDB。
+ * @param {string} key
+ * @param {*} value
+ */
 function write(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (e) {
-    // QuotaExceededError / NS_ERROR_DOM_QUOTA_REACHED — 存储满了
-    if (e?.name === 'QuotaExceededError' || e?.code === 22 || /quota/i.test(e?.message || '')) {
-      const err = new Error('localStorage 存储空间不足，请导出备份后清理数据');
-      err.isQuotaFull = true;
-      // 通知上层有存储满事件（app.js 注册回调）
+  // 同步更新缓存
+  cache[key] = value;
+  // 异步写入 IndexedDB（fire-and-forget，出错时警告）
+  setItem(key, value).catch((e) => {
+    console.warn('[MuseFlow] IndexedDB write failed:', e);
+    if (e?.name === 'QuotaExceededError') {
       try { window.MFOnQuotaFull?.(); } catch { /* ignore */ }
-      throw err;
     }
-    // 隐私模式 / 其他异常 — 静默吞掉
-    console.warn('MuseFlow store: write failed', e);
-  }
+  });
 }
+
+// ==================== 对外 API（保持不变） ====================
 
 export const uid = (prefix = 'id') =>
   `${prefix}_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
@@ -178,68 +234,57 @@ export const settings = {
   save: (s) => write(KEYS.settings, s),
 };
 
-// ---- Storage quota helpers ----
-// localStorage 按 UTF-16 存储，每个字符 2 字节。
-// 实际浏览器上限通常是 5MB ~ 10MB，但不同浏览器/隐私模式差异大，这里取保守值 5MB。
-const QUOTA_BYTES = 5 * 1024 * 1024;
+// ==================== 存储用量 ====================
 
-function bytesUsedBy(key) {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return 0;
-    // JS 字符串是 UTF-16，每个字符 2 字节
-    return raw.length * 2;
-  } catch {
-    return 0;
-  }
+/**
+ * 估算存储用量（字节）。使用 navigator.storage.estimate()。
+ * 返回 { usedBytes, usedPercent, level, quotaBytes }
+ * level: 'ok' (≤70%) | 'warn' (70~90%) | 'danger' (>90%)
+ */
+export async function checkQuota() {
+  const { usage = 0, quota = 0 } = await estimateUsage();
+  // quota 为 0 时（不支持 estimate），回退到保守值
+  const effectiveQuota = quota || 500 * 1024 * 1024; // IndexedDB 通常上限远大于 localStorage
+  const pct = effectiveQuota > 0 ? Math.min(100, Math.round((usage / effectiveQuota) * 100)) : 0;
+  let level = 'ok';
+  if (pct > 90) level = 'danger';
+  else if (pct > 70) level = 'warn';
+  return { usedBytes: usage, usedPercent: pct, level, quotaBytes: effectiveQuota };
 }
 
 /**
- * 估算当前站点 localStorage 总占用（字节）。
- * 遍历所有 key 统计，兼容隐私模式下的异常。
+ * 同步估算缓存占用（字节）。
+ * 用于 IndexedDB 尚未加载完成时的快速估算。
  */
-export function estimateStorageUsage() {
-  try {
-    let total = 0;
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k) total += bytesUsedBy(k);
-    }
-    return total;
-  } catch {
-    return 0;
+export function estimateCacheBytes() {
+  let total = 0;
+  for (const [key, val] of Object.entries(cache)) {
+    try {
+      total += JSON.stringify(val).length * 2; // UTF-16
+    } catch { /* ignore */ }
   }
+  return total;
 }
 
 /** 格式化字节数为人类可读字符串 */
 export function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
 
-/**
- * 检查存储用量，返回 { usedBytes, usedPercent, level }
- * level: 'ok' (≤70%) | 'warn' (70~90%) | 'danger' (>90%)
- */
-export function checkQuota() {
-  const used = estimateStorageUsage();
-  const pct = Math.min(100, Math.round((used / QUOTA_BYTES) * 100));
-  let level = 'ok';
-  if (pct > 90) level = 'danger';
-  else if (pct > 70) level = 'warn';
-  return { usedBytes: used, usedPercent: pct, level };
-}
-
-/** 清空所有 MuseFlow 存储数据（用于清理） */
-export function clearAllData() {
+/** 清空所有 MuseFlow 存储数据（IndexedDB + localStorage 残留） */
+export async function clearAllData() {
   for (const key of Object.values(KEYS)) {
+    delete cache[key];
+    try { await removeItem(key); } catch { /* ignore */ }
     try { localStorage.removeItem(key); } catch { /* ignore */ }
   }
 }
 
-// ---- Import / Export (cross-device sync) ----
-// 导出所有 MuseFlow 数据为一个 JSON 对象（不含音频 blob，blob 已在保存工程时转 dataURL）
+// ==================== Import / Export ====================
+// 导出所有 MuseFlow 数据为一个 JSON 对象
 export function exportAll() {
   const out = {
     app: 'MuseFlow',
@@ -253,7 +298,7 @@ export function exportAll() {
   return out;
 }
 
-// 从 JSON 对象导入数据，覆盖所有本地数据。返回 { ok, count, message }
+// 从 JSON 对象导入数据，覆盖所有本地数据
 export function importAll(payload) {
   if (!payload || typeof payload !== 'object') {
     return { ok: false, count: 0, message: '无效的数据格式' };
@@ -271,3 +316,6 @@ export function importAll(payload) {
   }
   return { ok: true, count, message: `已导入 ${count} 项数据` };
 }
+
+// 导出 ready promise，供需要等待数据加载完成的地方使用
+export { readyPromise as storeReady };

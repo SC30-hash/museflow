@@ -903,6 +903,25 @@ body.in-wide-mode .page-main {
   background: rgba(229, 62, 62, 0.5);
 }
 
+/* 歌词分类筛选栏 — 横向滚动条（滑轨）红色 */
+#lyric-cat-bar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(229, 62, 62, 0.5) transparent;
+}
+#lyric-cat-bar::-webkit-scrollbar {
+  height: 8px;
+}
+#lyric-cat-bar::-webkit-scrollbar-track {
+  background: transparent;
+}
+#lyric-cat-bar::-webkit-scrollbar-thumb {
+  background: rgba(229, 62, 62, 0.5);
+  border-radius: 999px;
+}
+#lyric-cat-bar::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 62, 62, 0.7);
+}
+
 #arranger-slider {
   transition: opacity 0.2s;
 }
