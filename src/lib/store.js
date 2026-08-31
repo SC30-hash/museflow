@@ -9,6 +9,7 @@ const KEYS = {
   lyrics: 'museflow.lyrics.v1',
   sketches: 'museflow.sketches.v1',
   settings: 'museflow.settings.v1',
+  categories: 'museflow.categories.v1',
 };
 
 function read(key, fallback) {
@@ -115,6 +116,42 @@ export const lyrics = {
     const list = this.all().filter((x) => x.id !== id);
     this.save(list);
     return list;
+  },
+};
+
+// ---- Categories / Folders for lyrics ----
+export const categories = {
+  all: () => read(KEYS.categories, []),
+  save: (items) => write(KEYS.categories, items),
+  add(name) {
+    const list = this.all();
+    const cat = { id: uid('cat'), name: String(name || '未分类').slice(0, 20), createdAt: Date.now() };
+    list.unshift(cat);
+    this.save(list);
+    return cat;
+  },
+  update(id, patch) {
+    const list = this.all();
+    const idx = list.findIndex((c) => c.id === id);
+    if (idx === -1) return null;
+    list[idx] = { ...list[idx], ...patch };
+    this.save(list);
+    return list[idx];
+  },
+  remove(id) {
+    const list = this.all().filter((c) => c.id !== id);
+    this.save(list);
+    // also unassign this category from lyrics
+    const lyricList = lyrics.all();
+    let changed = false;
+    for (const l of lyricList) {
+      if (l.categoryId === id) { l.categoryId = null; changed = true; }
+    }
+    if (changed) lyrics.save(lyricList);
+    return list;
+  },
+  rename(id, name) {
+    return this.update(id, { name: String(name || '').trim().slice(0, 20) });
   },
 };
 

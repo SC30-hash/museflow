@@ -244,8 +244,32 @@
           <label for="lyric-line" class="sr-only">歌词内容</label>
           <textarea id="lyric-line" rows="3" placeholder="第一句歌词…" class="w-full resize-y rounded-xl border border-input bg-input px-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"></textarea>
           <div class="mt-3 flex items-center justify-between">
-            <span class="text-xs text-muted-foreground" id="auto-save-label">自动保存</span>
-            <button type="button" id="save-btn" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">保存</button>
+            <div class="flex items-center gap-2">
+              <!-- 分类选择器 -->
+              <div class="relative" id="new-lyric-cat-wrap">
+                <button type="button" id="new-lyric-cat-btn" class="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-md border border-border bg-muted hover:bg-card text-muted-foreground hover:text-foreground transition-colors">
+                  <i data-lucide="folder-plus" class="w-3.5 h-3.5"></i>
+                  <span id="new-lyric-cat-label">未分类</span>
+                  <i data-lucide="chevron-down" class="w-3 h-3"></i>
+                </button>
+                <div id="new-lyric-cat-menu" class="hidden absolute left-0 bottom-full mb-1 w-48 rounded-lg border border-border bg-card shadow-lg z-20 py-1 max-h-56 overflow-y-auto"></div>
+              </div>
+              <!-- 新建分类快捷按钮 -->
+              <button type="button" id="new-cat-quick" class="text-xs px-2 py-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                <i data-lucide="plus" class="w-3.5 h-3.5 inline align-middle mr-0.5"></i>分类
+              </button>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-xs text-muted-foreground" id="auto-save-label">自动保存</span>
+              <button type="button" id="save-btn" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">保存</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- 分类筛选栏 -->
+        <section class="space-y-2">
+          <div class="flex items-center gap-2 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-thin" id="lyric-cat-bar">
+            <!-- populated by JS -->
           </div>
         </section>
 
