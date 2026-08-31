@@ -735,10 +735,12 @@ function deleteClip(cid) {
   renderTracks();
 }
 
-// ---- 长按删除 / 拖动移动 / 双击剪切 ----
-const LONG_PRESS_MS = 450;   // 超过 450ms 视为长按
-const MOVE_TOL_PX = 6;      // 指针位移超过 6px 取消长按 → 进入 drag
-let pressState = null;      // { cid, clipEl, timer, startX, startY, triggered, pointerId, arr, origRect, dragMode, deltaX, startSec }
+// ---- 三次点击删除 / 拖动移动 ----
+// （原"长按删除 + 双击剪切"已移除：长按在移动端容易误触，双击和三次点击冲突。）
+const MOVE_TOL_PX = 6;      // 指针位移超过 6px 进入 drag
+const TRIPLE_WINDOW_MS = 800; // 三次点击删除的时间窗口
+const clipClickTimes = new Map(); // clipId -> { count, last }
+let pressState = null;      // { cid, clipEl, startX, startY, pointerId, arr, origRect, dragMode, deltaX, startSec }
 function clearPress() {
   if (!pressState) return;
   clearTimeout(pressState.timer);
@@ -791,17 +793,7 @@ tracksBody.addEventListener('pointerdown', (e) => {
   const found = findClip(cid);
   if (found) pressState.startSec = found.clip.startTime;
   clipEl.classList.add('press-flash');
-  pressState.timer = setTimeout(() => {
-    if (!pressState || pressState.cid !== cid || pressState.dragMode) return;
-    pressState.triggered = true;
-    // 长按 = 删除
-    clipEl.classList.remove('press-flash');
-    clipEl.classList.add('press-shake');
-    deleteClip(cid);
-    setTimeout(() => { if (clipEl.isConnected) clipEl.classList.remove('press-shake'); }, 300);
-    pressState = null;
-    window.MFToast('已删除该音频块');
-  }, LONG_PRESS_MS);
+  // 长按删除已移除 → 改为三次 click 计数删除（见下方 click 监听器）
   try { clipEl.setPointerCapture?.(e.pointerId); } catch {}
 });
 tracksBody.addEventListener('pointermove', (e) => {
@@ -809,10 +801,9 @@ tracksBody.addEventListener('pointermove', (e) => {
   const dx = e.clientX - pressState.startX;
   const dy = e.clientY - pressState.startY;
   const dist = Math.hypot(dx, dy);
-  // 首次超过阈值：退出长按 → 进入 drag 模式
+  // 首次超过阈值：进入 drag 模式
   if (!pressState.dragMode && dist > MOVE_TOL_PX) {
     pressState.dragMode = true;
-    clearTimeout(pressState.timer);
     pressState.clipEl.classList.remove('press-flash');
     pressState.clipEl.style.zIndex = '20';
     pressState.clipEl.style.cursor = 'grabbing';
@@ -828,15 +819,9 @@ tracksBody.addEventListener('pointermove', (e) => {
 });
 tracksBody.addEventListener('pointerup', (e) => {
   if (!pressState) return;
-  const wasTriggered = pressState.triggered;
   const dragMode = pressState.dragMode;
   const ps = pressState;
   clearPress();
-  if (wasTriggered) {
-    e.preventDefault();
-    e.stopPropagation();
-    return;
-  }
   if (dragMode) {
     // 结束拖动：把 translateX 写入 startTime
     const found = findClip(ps.cid);
@@ -856,34 +841,48 @@ tracksBody.addEventListener('pointerup', (e) => {
     e.stopPropagation();
     return;
   }
-  // 正常短按：什么都不做（只让 click/dblclick 后续处理）
+  // 正常短按：什么都不做，让后续 click 事件处理三次点击计数
 });
 tracksBody.addEventListener('pointercancel', clearPress);
 tracksBody.addEventListener('lostpointercapture', (e) => {
   if (pressState && pressState.pointerId === e.pointerId) clearPress();
 });
 
-// 双击 clip：在点击的 x 位置换算成 clip 内秒数，从此处剪开
-tracksBody.addEventListener('dblclick', (e) => {
-  const clipEl = e.target.closest('[data-clip-id]');
-  if (!clipEl) return;
-  if (transportState !== 'idle') { window.MFToast('先停止再剪切'); return; }
-  const cid = clipEl.dataset.clipId;
-  const found = findClip(cid);
-  if (!found) return;
-  const { clip } = found;
-  const rect = clipEl.getBoundingClientRect();
-  const localX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-  const ratio = rect.width > 0 ? localX / rect.width : 0.5;
-  const inSec = ratio * clip.duration;
-  // 视觉反馈
-  clipEl.classList.add('press-flash');
-  setTimeout(() => clipEl.classList.remove('press-flash'), 150);
-  splitClipAtOffset(cid, inSec);
-});
+// 双击剪切已移除（和三次点击删除冲突，浏览器三次连点会触发 dblclick）。
+// splitClipAtOffset 函数保留备用，未来如需恢复剪切可重新挂 dblclick 监听器。
 
-// 通道条按钮（M / S / R / X）的 click 处理
+// 通道条按钮（M / S / R / X）+ 三次点击删除 clip 的 click 处理
 tracksBody.addEventListener('click', (e) => {
+  // === 三次点击删除 clip（替代原长按删除） ===
+  // 三次连续点击同一个 clip（间隔 < TRIPLE_WINDOW_MS）即触发删除
+  const clipEl = e.target.closest('[data-clip-id]');
+  if (clipEl) {
+    const cid = clipEl.dataset.clipId;
+    const now = Date.now();
+    const st = clipClickTimes.get(cid);
+    if (!st || now - st.last > TRIPLE_WINDOW_MS) {
+      clipClickTimes.set(cid, { count: 1, last: now });
+      // 视觉提示：第一次点击时闪一下，提示用户继续点击可删除
+      clipEl.classList.add('press-flash');
+      setTimeout(() => { if (clipEl.isConnected) clipEl.classList.remove('press-flash'); }, 120);
+    } else {
+      st.count += 1;
+      st.last = now;
+      if (st.count >= 3) {
+        clipClickTimes.delete(cid);
+        if (transportState !== 'idle') { window.MFToast('先停止再删除片段'); return; }
+        clipEl.classList.add('press-shake');
+        deleteClip(cid);
+        setTimeout(() => { if (clipEl.isConnected) clipEl.classList.remove('press-shake'); }, 300);
+        window.MFToast('已删除该音频块');
+        return;
+      }
+      // 第二次点击：再闪一下
+      clipEl.classList.add('press-flash');
+      setTimeout(() => { if (clipEl.isConnected) clipEl.classList.remove('press-flash'); }, 120);
+    }
+  }
+
   const row = e.target.closest('[data-track-id]');
   if (!row) return;
   const id = row.dataset.trackId;
