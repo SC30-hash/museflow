@@ -5,3 +5,4 @@ dist/
 .trae-html-share-packages/
 .uploads/
 *.log
+ray-weekly-console/

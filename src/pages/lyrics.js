@@ -94,7 +94,6 @@ function exitLyricsSelectMode() {
   if (lyricsSelectedCount) lyricsSelectedCount.textContent = '已选 0 项';
   if (lyricsBatchDeleteBtn) lyricsBatchDeleteBtn.disabled = true;
   if (lyricsSelectAll) { lyricsSelectAll.checked = false; lyricsSelectAll.indeterminate = false; }
-  render();
 }
 function lyricCheckbox(checked, id) {
   return `
@@ -551,7 +550,7 @@ if (lyricsToggleSelectBtn) {
     render();
   });
 }
-if (lyricsSelectCancelBtn) lyricsSelectCancelBtn.addEventListener('click', exitLyricsSelectMode);
+if (lyricsSelectCancelBtn) lyricsSelectCancelBtn.addEventListener('click', () => { exitLyricsSelectMode(); render(); });
 if (lyricsSelectAll) {
   lyricsSelectAll.addEventListener('change', () => {
     const items = filteredLyrics();
@@ -570,6 +569,7 @@ if (lyricsBatchDeleteBtn) {
     lyricsSelected.forEach((id) => { lyrics.remove(id); n++; });
     window.MFToast(`已删除 ${n} 篇`);
     exitLyricsSelectMode();
+    render();
   });
 }
 // 复选框（委托）
