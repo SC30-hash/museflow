@@ -303,21 +303,40 @@
   </div>
 
   <!-- 搜索模态框 -->
-  <div id="search-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4" style="display: none;">
-    <div class="w-full max-w-md bg-card border border-border rounded-2xl shadow-xl p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-base font-semibold font-display">搜索</h3>
-        <button type="button" id="search-close" class="p-1 rounded-full hover:bg-muted transition-colors" aria-label="关闭">
-          <i data-lucide="x" class="w-4 h-4"></i>
+  <div id="search-modal" class="fixed inset-0 z-50 hidden">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" data-close-search></div>
+    <div class="absolute inset-x-0 top-4 bottom-0 md:inset-0 md:m-auto md:max-w-lg md:h-[80vh] md:rounded-2xl rounded-t-2xl bg-card border border-border shadow-2xl flex flex-col overflow-hidden">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-border shrink-0">
+        <h3 class="text-base font-semibold flex items-center gap-2">
+          <i data-lucide="search" class="w-4 h-4 text-primary"></i>
+          搜索
+        </h3>
+        <button type="button" class="p-2 rounded-full hover:bg-muted" data-close-search aria-label="关闭">
+          <i data-lucide="x" class="w-5 h-5 text-muted-foreground"></i>
         </button>
       </div>
-      <div class="relative">
-        <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"></i>
-        <input id="search-input" type="text" placeholder="搜索捕捉 / 歌词" class="w-full rounded-xl border border-input bg-input pl-9 pr-3 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" />
+      <!-- Input -->
+      <div class="p-4 border-b border-border shrink-0">
+        <div class="relative">
+          <i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none"></i>
+          <input id="search-input" type="text" placeholder="输入关键词搜索灵感和歌词…" class="w-full rounded-xl border border-input bg-input pl-9 pr-9 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring" autocomplete="off" />
+          <button type="button" id="search-clear" class="hidden absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted" aria-label="清除">
+            <i data-lucide="x" class="w-4 h-4 text-muted-foreground"></i>
+          </button>
+        </div>
       </div>
-      <div class="mt-3 flex justify-end gap-2">
-        <button type="button" id="search-cancel" class="px-4 py-2 rounded-lg border border-border text-sm hover:bg-muted transition-colors">取消</button>
-        <button type="button" id="search-confirm" class="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-[.99] transition-all duration-150">搜索</button>
+      <!-- Results -->
+      <div id="search-results" class="flex-1 overflow-y-auto p-4">
+        <!-- placeholder when empty -->
+        <div id="search-empty" class="flex flex-col items-center justify-center py-16 text-center">
+          <div class="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+            <i data-lucide="search" class="w-5 h-5 text-muted-foreground"></i>
+          </div>
+          <p class="text-sm text-muted-foreground">输入关键词开始搜索</p>
+          <p class="text-xs text-muted-foreground mt-1">匹配灵感标题和歌词内容</p>
+        </div>
+        <!-- results injected here -->
       </div>
     </div>
   </div>

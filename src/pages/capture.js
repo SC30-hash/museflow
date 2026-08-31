@@ -1638,19 +1638,6 @@ listEl?.addEventListener('click', async (e) => {
   // 多选模式下没有操作按钮显示；若 action 存在则允许执行（兼容搜索结果）
   if (capturesSelectMode && !action) return;
 
-  // 处理搜索结果中的歌词删除
-  if (action === 'delete-lyric') {
-    lyrics.remove(id);
-    window.MFToast('歌词已删除');
-    // 重新执行搜索刷新结果
-    if (searchModal.style.display === 'flex') {
-      doSearch();
-    } else {
-      renderList();
-    }
-    return;
-  }
-
   const item = captures.all().find((x) => x.id === id);
   if (!item) return;
   if (action === 'delete') {
@@ -1829,84 +1816,174 @@ listEl?.addEventListener('click', async (e) => {
   }
 });
 
-// ================== Search ==================
-// 自定义搜索模态框，匹配应用设计风格
+// ================== Search (global modal) ==================
 const searchModal = document.getElementById('search-modal');
 const searchInput = document.getElementById('search-input');
+const searchClearBtn = document.getElementById('search-clear');
+const searchResults = document.getElementById('search-results');
+const searchEmpty = document.getElementById('search-empty');
+
+let searchDebounce = null;
 
 function openSearchModal() {
-  searchInput.value = '';
-  searchModal.style.display = 'flex';
-  setTimeout(() => searchInput.focus(), 50);
+  searchModal.classList.remove('hidden');
+  setTimeout(() => searchInput.focus(), 80);
+  refreshIcons();
 }
 function closeSearchModal() {
-  searchModal.style.display = 'none';
+  searchModal.classList.add('hidden');
+  searchInput.value = '';
+  renderSearchResults('', []);
 }
-function doSearch() {
-  const q = searchInput.value.trim();
-  closeSearchModal();
-  if (!q) { renderList(); return; }
 
-  const query = q.toLowerCase();
+// Highlight matched substrings with <mark>
+function hl(text, query) {
+  if (!query) return escapeHtml(text);
+  const safe = escapeHtml(text);
+  const re = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+  return safe.replace(re, '<mark class="bg-primary/30 text-primary rounded px-0.5">$1</mark>');
+}
 
-  // 搜捕捉（灵感：音频 / 工程，不含文字）
-  const capHits = captures.all().filter((it) => {
-    if (it.kind === 'text') return false;
-    const t = (it.title || '').toLowerCase();
-    const b = (it.body || '').toLowerCase();
-    return t.includes(query) || b.includes(query);
-  }).map((it) => {
-    const isProj = it.kind === 'project';
-    const isAudio = it.kind === 'audio';
-    const icon = isProj ? 'sliders' : isAudio ? 'mic' : 'type';
-    const accent = isProj ? 'bg-accent/20' : isAudio ? 'bg-primary/10' : 'bg-muted';
-    return `<article class="bg-card border border-border rounded-xl p-3 flex items-center gap-3 shadow-sm" data-id="${it.id}" data-kind="${it.kind || ''}">
-      <div class="w-10 h-10 rounded-full ${accent} flex items-center justify-center shrink-0"><i data-lucide="${icon}" class="w-5 h-5"></i></div>
-      <div class="flex-1 min-w-0"><h3 class="text-sm font-medium truncate">${escapeHtml(it.title)}</h3><p class="text-xs text-muted-foreground">${escapeHtml(it.stamp || '')} · 灵感</p></div>
-    </article>`;
-  });
-
-  // 搜歌词
-  const lyrHits = lyrics.all().filter((it) => {
-    const t = (it.title || '').toLowerCase();
-    const b = (it.body || '').toLowerCase();
-    return t.includes(query) || b.includes(query);
-  }).map((it) => `<article class="bg-card border border-border rounded-xl p-3 flex items-center gap-3 shadow-sm group" data-id="${it.id}" data-kind="lyric">
-      <div class="w-10 h-10 rounded-full bg-muted text-foreground/80 flex items-center justify-center shrink-0"><i data-lucide="type" class="w-5 h-5"></i></div>
-      <div class="flex-1 min-w-0"><h3 class="text-sm font-medium truncate">${escapeHtml(it.title)}</h3><p class="text-xs text-muted-foreground">${escapeHtml(it.date || '')} · 歌词</p></div>
-      <button type="button" data-action="delete-lyric" class="p-1.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="删除">
-        <i data-lucide="trash-2" class="w-4 h-4"></i>
-      </button>
-    </article>`);
-
-  const total = capHits.length + lyrHits.length;
-  if (!total) {
-    window.MFToast('没有匹配');
-    renderList();
+function renderSearchResults(query, hits) {
+  if (!query) {
+    searchResults.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center">
+      <div class="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+        <i data-lucide="search" class="w-5 h-5 text-muted-foreground"></i>
+      </div>
+      <p class="text-sm text-muted-foreground">输入关键词开始搜索</p>
+      <p class="text-xs text-muted-foreground mt-1">匹配灵感标题和歌词内容</p>
+    </div>`;
+    refreshIcons();
     return;
   }
-  window.MFToast(`找到 ${total} 条结果`);
-  listEl.innerHTML = capHits.concat(lyrHits).join('');
+  if (hits.length === 0) {
+    searchResults.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-center">
+      <div class="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
+        <i data-lucide="search-x" class="w-5 h-5 text-muted-foreground"></i>
+      </div>
+      <p class="text-sm text-muted-foreground">没有找到 "${query}"</p>
+    </div>`;
+    refreshIcons();
+    return;
+  }
+
+  const capHits = hits.filter((h) => h.source === 'capture');
+  const lyrHits = hits.filter((h) => h.source === 'lyric');
+
+  let html = '';
+  if (capHits.length) {
+    html += `<div class="mb-4">
+      <h4 class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">灵感 (${capHits.length})</h4>
+      <div class="space-y-2">${capHits.map(h => `
+        <button type="button" class="w-full text-left bg-card border border-border rounded-xl p-3 flex items-center gap-3 hover:border-primary/50 hover:bg-muted/50 transition-colors" data-search-hit data-source="capture" data-id="${h.id}" data-kind="${h.kind}">
+          <div class="w-10 h-10 rounded-full ${h.kind === 'project' ? 'bg-accent/20' : 'bg-primary/10'} flex items-center justify-center shrink-0">
+            <i data-lucide="${h.kind === 'project' ? 'sliders' : 'mic'}" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium truncate">${hl(h.title || '(未命名)', query)}</div>
+            <div class="text-xs text-muted-foreground truncate">${hl(h.body || '', query) || '无描述'} · ${h.stamp}</div>
+          </div>
+        </button>`).join('')}</div>
+    </div>`;
+  }
+  if (lyrHits.length) {
+    html += `<div>
+      <h4 class="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">歌词 (${lyrHits.length})</h4>
+      <div class="space-y-2">${lyrHits.map(h => `
+        <button type="button" class="w-full text-left bg-card border border-border rounded-xl p-3 flex items-start gap-3 hover:border-primary/50 hover:bg-muted/50 transition-colors" data-search-hit data-source="lyric" data-id="${h.id}">
+          <div class="w-10 h-10 rounded-full bg-muted flex items-center justify-center shrink-0">
+            <i data-lucide="file-text" class="w-5 h-5"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="text-sm font-medium truncate">${hl(h.title || '(无标题)', query)}</div>
+            <div class="text-xs text-muted-foreground line-clamp-2">${hl(h.body || '', query)}</div>
+          </div>
+        </button>`).join('')}</div>
+    </div>`;
+  }
+  searchResults.innerHTML = html;
   refreshIcons();
 }
 
-// search-btn is dynamically created by nav.js after this module loads,
-// so we use event delegation instead of binding directly to the element.
+function doSearchLive() {
+  const q = searchInput.value.trim();
+  searchClearBtn.classList.toggle('hidden', !q);
+
+  if (!q) {
+    renderSearchResults('', []);
+    return;
+  }
+  const query = q.toLowerCase();
+
+  const hits = [];
+  // captures (audio + project, skip text-only kinds)
+  captures.all().forEach((it) => {
+    if (it.kind === 'text') return;
+    const t = (it.title || '').toLowerCase();
+    const b = (it.body || '').toLowerCase();
+    if (t.includes(query) || b.includes(query)) {
+      hits.push({ source: 'capture', id: it.id, kind: it.kind || '', title: it.title, body: it.body, stamp: it.stamp || '' });
+    }
+  });
+  // lyrics
+  lyrics.all().forEach((it) => {
+    const t = (it.title || '').toLowerCase();
+    const b = (it.body || '').toLowerCase();
+    if (t.includes(query) || b.includes(query)) {
+      hits.push({ source: 'lyric', id: it.id, title: it.title, body: it.body, date: it.date || '' });
+    }
+  });
+
+  renderSearchResults(q, hits);
+}
+
+// --- search event wiring ---
 document.addEventListener('click', (e) => {
   if (e.target.closest('#search-btn')) openSearchModal();
+  if (e.target.closest('[data-close-search]')) closeSearchModal();
+  if (e.target.closest('#search-clear')) { searchInput.value = ''; doSearchLive(); searchInput.focus(); }
+  // click a result hit
+  const hit = e.target.closest('[data-search-hit]');
+  if (hit) {
+    const source = hit.dataset.source;
+    const id = hit.dataset.id;
+    closeSearchModal();
+    if (source === 'capture') {
+      window.MFNavigate('capture');
+      window.MFToast('已跳转到灵感页');
+      // highlight the matching card briefly
+      setTimeout(() => {
+        const card = document.querySelector(`#captures-list article[data-id="${id}"]`);
+        if (card) { card.classList.add('ring-2', 'ring-primary'); setTimeout(() => card.classList.remove('ring-2', 'ring-primary'), 1500); }
+      }, 80);
+    } else if (source === 'lyric') {
+      window.MFNavigate('lyrics');
+      window.MFToast('已跳转到歌词页');
+      // highlight the matching card briefly
+      setTimeout(() => {
+        const card = document.querySelector(`#lyrics-list article[data-id="${id}"]`);
+        if (card) { card.classList.add('ring-2', 'ring-primary'); setTimeout(() => card.classList.remove('ring-2', 'ring-primary'), 1500); }
+      }, 80);
+    }
+  }
 });
-document.getElementById('search-close')?.addEventListener('click', closeSearchModal);
-document.getElementById('search-cancel')?.addEventListener('click', closeSearchModal);
-document.getElementById('search-confirm')?.addEventListener('click', doSearch);
-searchModal?.addEventListener('click', (e) => {
-  if (e.target === searchModal) closeSearchModal();
+
+searchInput?.addEventListener('input', () => {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(doSearchLive, 120);
 });
 searchInput?.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') doSearch();
   if (e.key === 'Escape') closeSearchModal();
+  if (e.key === 'Enter') { /* live search already shows results */ }
 });
 document.addEventListener('keydown', (e) => {
-  if (searchModal && e.key === 'Escape' && searchModal.style.display === 'flex') closeSearchModal();
+  if (searchModal && !searchModal.classList.contains('hidden') && e.key === 'Escape') closeSearchModal();
+  // Ctrl/Cmd + K to open search anywhere
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    if (searchModal && searchModal.classList.contains('hidden')) openSearchModal();
+    else closeSearchModal();
+  }
 });
 
 // ================== Init ==================

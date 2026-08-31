@@ -5,9 +5,9 @@
 import { createIcons, icons as lucideIcons } from 'lucide';
 
 const VIEWS = [
-  { key: 'capture', label: '灵感', icon: 'mic',        subtitle: '捕捉一闪而过的旋律',            action: 'search' },
-  { key: 'demos',   label: '小样', icon: 'music',      subtitle: '上传音频，自动检测调式与 BPM', action: null    },
-  { key: 'lyrics',  label: '歌词', icon: 'align-left', subtitle: '写下你的句子',                  action: 'new'   },
+  { key: 'capture', label: '灵感', icon: 'mic',        subtitle: '捕捉一闪而过的旋律',            actions: ['search']        },
+  { key: 'demos',   label: '小样', icon: 'music',      subtitle: '上传音频，自动检测调式与 BPM', actions: ['search']        },
+  { key: 'lyrics',  label: '歌词', icon: 'align-left', subtitle: '写下你的句子',                  actions: ['search', 'new'] },
 ];
 
 let currentKey = null;
@@ -20,28 +20,30 @@ function icon(name, cls = 'w-5 h-5 shrink-0') {
 }
 
 // ---- Build header action button(s) ----
-// Always shows a gear/settings button (import/export data),
-// plus an optional view-specific action button before it.
-function buildHeaderAction(actionType) {
+// Each view can define multiple action buttons, plus a gear/settings button always present.
+function buildHeaderAction(actions) {
   const container = document.getElementById('header-action');
   if (!container) return;
   container.innerHTML = '';
-  if (actionType === 'search') {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'search-btn';
-    btn.className = 'p-2 rounded-full hover:bg-muted transition-colors duration-150';
-    btn.setAttribute('aria-label', '搜索');
-    btn.appendChild(icon('search', 'w-5 h-5 text-muted-foreground'));
-    container.appendChild(btn);
-  } else if (actionType === 'new') {
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.id = 'new-btn';
-    btn.className = 'p-2 rounded-full hover:bg-muted transition-colors duration-150';
-    btn.setAttribute('aria-label', '新建');
-    btn.appendChild(icon('plus', 'w-5 h-5 text-muted-foreground'));
-    container.appendChild(btn);
+  const list = Array.isArray(actions) ? actions : (actions ? [actions] : []);
+  for (const actionType of list) {
+    if (actionType === 'search') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'search-btn';
+      btn.className = 'p-2 rounded-full hover:bg-muted transition-colors duration-150';
+      btn.setAttribute('aria-label', '搜索');
+      btn.appendChild(icon('search', 'w-5 h-5 text-muted-foreground'));
+      container.appendChild(btn);
+    } else if (actionType === 'new') {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'new-btn';
+      btn.className = 'p-2 rounded-full hover:bg-muted transition-colors duration-150';
+      btn.setAttribute('aria-label', '新建');
+      btn.appendChild(icon('plus', 'w-5 h-5 text-muted-foreground'));
+      container.appendChild(btn);
+    }
   }
   // Settings gear (import/export data) — present on every view
   const gear = document.createElement('button');
@@ -75,7 +77,7 @@ function updateHeader(key) {
   const subEl = document.getElementById('header-subtitle');
   if (subEl) subEl.textContent = view.subtitle;
 
-  buildHeaderAction(view.action);
+  buildHeaderAction(view.actions);
   document.title = `${view.label} - MuseFlow`;
 }
 
@@ -240,9 +242,11 @@ export function switchView(key) {
 
   updateNavIndicator(key);
   createIcons({ icons: lucideIcons });
-
   currentKey = key;
 }
+
+// expose globally so search modal (defined in capture.js) can navigate
+window.MFNavigate = switchView;
 
 // ---- Mount nav (called once on page load) ----
 export function mountNav(activeKey) {
