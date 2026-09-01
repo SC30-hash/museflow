@@ -2540,11 +2540,13 @@ let searchDebounce = null;
 
 function openSearchModal() {
   searchModal.classList.remove('hidden');
+  searchModal.classList.add('flex'); // 容器才有 items-center justify-center 布局，弹窗居中显示
   setTimeout(() => searchInput.focus(), 80);
   refreshIcons();
 }
 function closeSearchModal() {
   searchModal.classList.add('hidden');
+  searchModal.classList.remove('flex');
   searchInput.value = '';
   renderSearchResults('', []);
 }
