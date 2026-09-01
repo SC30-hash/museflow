@@ -290,6 +290,14 @@ let transportRaf = 0;
 // all clip audios currently playing in transport mode (for stopping synchronously)
 let activePlaybacks = [];     // [{ audio, clipStartTime, clipDuration, startedAt }]
 
+// 时间读数三态样式：待机暖灰 / 播放微亮(tt-play) / 录音红呼吸(tt-rec)
+function syncTransportTimeUI() {
+  const el = document.getElementById('transport-time');
+  if (!el) return;
+  el.classList.toggle('tt-play', transportState === 'play');
+  el.classList.toggle('tt-rec', transportState === 'rec');
+}
+
 // shared microphone stream (多个 MediaRecorder 复用，避免重复申请权限)
 let sharedMicStream = null;
 async function acquireMicStream() {
@@ -1629,6 +1637,7 @@ function transportPlay() {
     tr.clips.forEach((c) => { if (c.audio) c.audio.load?.(); });
   });
   transportState = 'play';
+  syncTransportTimeUI();
   playStartTime = performance.now();
   playBaseSec = playBaseSec || 0;
   startPlayback(playBaseSec);
@@ -1645,6 +1654,7 @@ function pausePlayback(keepPosition) {
     playBaseSec = t;
   }
   transportState = 'idle';
+  syncTransportTimeUI();
   if (transportRaf) cancelAnimationFrame(transportRaf);
   transportRaf = 0;
   swapIcon(document.getElementById('transport-play'), 'play');
@@ -1660,6 +1670,7 @@ function transportStop() {
     stopArmRecording();
   }
   transportState = 'idle';
+  syncTransportTimeUI();
   stopAllPlaybacks();
   swapIcon(document.getElementById('transport-play'), 'play');
   const recBtn = document.getElementById('transport-rec');
@@ -1731,6 +1742,7 @@ async function transportRec() {
   // 放在 playStartTime 之前完成，避免给录音起始对齐引入额外延迟。
   if (monitorOn) await startMonitor({ silent: true });
   transportState = 'rec';
+  syncTransportTimeUI();
   playStartTime = performance.now();
   // 录音从当前指针位置开始，不限制在固定范围内
   const recStartSec = playBaseSec;

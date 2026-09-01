@@ -267,7 +267,31 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .record-pulse, .beat-pulse, .key-pulse, .press-shake,
-    #play-btn, body.is-playing #bpm-display { animation: none !important; }
+    #play-btn, body.is-playing #bpm-display, #transport-time.tt-rec { animation: none !important; }
+  }
+
+  /* ============ Transport 时间读数 ============ */
+  /* transport 的主角读数。三态配色：待机暖灰（低调）、播放微亮（活跃但不抢）、
+     录音红 + 呼吸（与 REC 按钮脉冲同频的警示态）。只用颜色/opacity，不做阴影动画 */
+  #transport-time {
+    min-width: 8.6ch;          /* 等宽读数，容器固定宽防跳（00:00.00 = 8 字符 + 余量） */
+    text-align: center;
+    transition: color .25s ease, background-color .25s ease, border-color .25s ease;
+  }
+  #transport-time.tt-play {
+    color: var(--museflow-neutral-300);          /* 暖浅灰，比待机亮一档 */
+    background: var(--museflow-surface-muted);
+    border-color: var(--museflow-surface-border);
+  }
+  #transport-time.tt-rec {
+    color: var(--museflow-primary-400);           /* 亮红数字 */
+    background: var(--museflow-primary-100);     /* 暗红底 */
+    border-color: rgba(229, 62, 62, 0.45);
+    animation: timeBreathe 1.8s ease-in-out infinite;
+  }
+  @keyframes timeBreathe {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.55; }
   }
 
   /* Clip 编辑手势反馈：按下闪白 / 删除前摇晃 */
