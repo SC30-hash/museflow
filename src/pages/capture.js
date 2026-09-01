@@ -305,6 +305,71 @@ function releaseMicStream() {
   }
 }
 
+// ================== 录音监听 ==================
+// 监听 = 麦克风实时经各 Arm 录音轨的 FX 链（EQ/压缩/混响/自动音准）直达输出，
+// 录音时能听到自己——与播放/导出共用同一套链，所听即所得。
+// 默认关闭：不戴耳机会经扬声器啸叫。开启后录音结束监听仍保持（用户显式关）。
+let monitorOn = false;
+let micSrc = null; // MediaStreamAudioSourceNode（所有被监听的轨共用一个源）
+
+function syncMonitorUI() {
+  const btn = document.getElementById('transport-monitor');
+  if (!btn) return;
+  if (monitorOn) {
+    btn.classList.remove('bg-muted', 'text-muted-foreground');
+    btn.classList.add('bg-primary/15', 'text-primary', 'ring-1', 'ring-primary/50');
+  } else {
+    btn.classList.add('bg-muted', 'text-muted-foreground');
+    btn.classList.remove('bg-primary/15', 'text-primary', 'ring-1', 'ring-primary/50');
+  }
+  btn.setAttribute('aria-pressed', String(monitorOn));
+}
+
+// 接入/重新接入监听：按当前 Arm 的录音轨（无 Arm 时取全部录音轨）。
+// 幂等——已连接时先断开旧链再按最新 Arm 重接（切换 Arm、删轨、开始录音时都会调用）。
+// silent 用于程序内部重接：不弹提示。
+async function startMonitor({ silent = false } = {}) {
+  const fail = (msg) => { if (!silent) window.MFToast(msg); return false; };
+  let targets = project.tracks.filter((t) => t.kind === 'record' && t.armed);
+  if (!targets.length) targets = project.tracks.filter((t) => t.kind === 'record');
+  if (!targets.length) return fail('没有录音轨');
+  try { await acquireMicStream(); } catch (err) { return fail(err?.message || '无法访问麦克风'); }
+  if (!ensureLiveGraph()) return fail('无法创建音频图');
+  const chains = await Promise.all(targets.map((tr) => getLiveChain(tr).catch(() => null)));
+  if (!micSrc) {
+    try { micSrc = _ac.createMediaStreamSource(sharedMicStream); } catch { return false; }
+  } else {
+    try { micSrc.disconnect(); } catch {}
+  }
+  chains.forEach((ch) => {
+    if (!ch) return;
+    try { micSrc.connect(ch.input); } catch {}
+  });
+  if (!silent) window.MFToast('监听已开启（建议戴耳机，避免啸叫）');
+  return true;
+}
+
+function stopMonitor() {
+  if (micSrc) {
+    try { micSrc.disconnect(); } catch {}
+    micSrc = null;
+  }
+  // 录音进行中：麦克风归录制用，不释放；空闲时释放（熄指示灯/省电）
+  if (transportState !== 'rec') releaseMicStream();
+}
+
+document.getElementById('transport-monitor')?.addEventListener('click', async () => {
+  monitorOn = !monitorOn;
+  syncMonitorUI();
+  if (monitorOn) {
+    const ok = await startMonitor();
+    if (!ok) { monitorOn = false; syncMonitorUI(); }
+  } else {
+    stopMonitor();
+    window.MFToast('监听已关闭');
+  }
+});
+
 // ================== Ruler ==================
 function drawRuler() {
   const el = document.getElementById('time-ruler');
@@ -1139,6 +1204,8 @@ tracksBody.addEventListener('click', (e) => {
     if (tr.kind !== 'record') return;
     if (transportState !== 'idle') { window.MFToast('先停止再切换录音 Arm'); return; }
     tr.armed = !tr.armed;
+    // 监听开着时跟着 Arm 变化重新接入（异步幂等，失败静默）
+    if (monitorOn) startMonitor({ silent: true }).catch(() => {});
   }
   if (bt === 'F') {
     // 长按已触发旁通切换，跳过紧随其后的 click，避免误开混音台
@@ -1151,6 +1218,8 @@ tracksBody.addEventListener('click', (e) => {
     tr.clips.forEach((c) => { try { c.audio.pause(); } catch {} if (c.url) try { URL.revokeObjectURL(c.url); } catch {} });
     if (tr._liveChain) { tr._liveChain.dispose(); tr._liveChain = null; }
     project.tracks = project.tracks.filter((x) => x.id !== id);
+    // 监听开着时：被删轨的链已断，按剩余轨重新接入
+    if (monitorOn) startMonitor({ silent: true }).catch(() => {});
   }
   renderTracks();
 });
@@ -1623,6 +1692,9 @@ async function transportRec() {
   }
   // UI: 重新渲染把 R 亮的状态展示出来（用户能看见哪些轨在录）
   renderTracks();
+  // 监听开启时：按当前 Arm 的轨重新接入（Arm 可能在开监听后换过）。
+  // 放在 playStartTime 之前完成，避免给录音起始对齐引入额外延迟。
+  if (monitorOn) await startMonitor({ silent: true });
   transportState = 'rec';
   playStartTime = performance.now();
   // 录音从当前指针位置开始，不限制在固定范围内
@@ -1682,7 +1754,7 @@ function finalizeRecClip(ctx) {
   ctx.track.clips.push(clip);
   activeRecorders._pending = (activeRecorders._pending || 1) - 1;
   if (activeRecorders._pending <= 0) {
-    releaseMicStream();
+    if (!monitorOn) releaseMicStream(); // 监听还开着时保留麦克风，关监听时再释放
     activeRecorders.length = 0;
     renderTracks();
   }
