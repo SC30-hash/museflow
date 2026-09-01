@@ -39,7 +39,7 @@ function atNodeFor(ctx) {
 }
 
 export function defaultFx() {
-  return { eqSub: 0, eqLow: 0, eqMid: 0, eqHigh: 0, eqAir: 0, autotune: 0, atScale: 0, deess: 0, sat: 0, comp: 0, reverb: 0, pan: 0 };
+  return { eqSub: 0, eqLow: 0, eqMid: 0, eqHigh: 0, eqAir: 0, autotune: 0, atScale: 0, atRoot: 0, deess: 0, sat: 0, comp: 0, reverb: 0, pan: 0 };
 }
 
 const clampDb = (v) => (Number.isFinite(v) ? Math.max(-12, Math.min(12, Number(v))) : 0);
@@ -58,6 +58,7 @@ export function trackFx(tr) {
     eqAir: clampDb(f.eqAir),
     autotune: clampPct(f.autotune),
     atScale: Number.isFinite(f.atScale) ? Math.max(0, Math.min(2, Math.round(f.atScale))) : 0,
+    atRoot: Number.isFinite(f.atRoot) ? Math.max(0, Math.min(11, Math.round(f.atRoot))) : 0,
     deess: clampPct(f.deess),
     sat: clampPct(f.sat),
     comp: clampPct(f.comp),
@@ -268,8 +269,10 @@ export function createFxChain(ctx, fx, reverbBusIn, dest) {
     if (atNode) {
       const pa = atNode.parameters.get('amount');
       const ps = atNode.parameters.get('scale');
+      const pr = atNode.parameters.get('root');
       if (pa) pa.value = f.autotune;
       if (ps) ps.value = f.atScale;
+      if (pr) pr.value = f.atRoot;
     }
     // send 曲线取平方：小值更细腻，100% 时约 -1dB 进入混响总线
     send.gain.value = Math.pow(f.reverb / 100, 2) * 0.9;

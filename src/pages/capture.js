@@ -1244,9 +1244,12 @@ function syncMixerUI() {
     if (val) val.textContent = f.fmt(fx[f.key]);
   });
   syncAtScaleUI(fx.atScale);
+  syncAtRootUI(fx.atRoot);
+  syncAtHint(fx.atScale, fx.atRoot);
 }
-// 自动音准的音阶切换按钮（0 半音阶 / 1 大调 / 2 小调）
+// 自动音准的音阶切换按钮（0 半音阶 / 1 大调 / 2 小调）与根音（0=C … 11=B）
 const AT_SCALES = ['半音阶', '大调', '小调'];
+const AT_ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 function syncAtScaleUI(cur) {
   AT_SCALES.forEach((_, i) => {
     const el = document.getElementById(`mix-atScale-${i}`);
@@ -1257,6 +1260,28 @@ function syncAtScaleUI(cur) {
     }`;
     el.setAttribute('aria-pressed', String(active));
   });
+}
+function syncAtRootUI(cur) {
+  AT_ROOTS.forEach((_, i) => {
+    const el = document.getElementById(`mix-atRoot-${i}`);
+    if (!el) return;
+    const active = i === cur;
+    el.className = `at-root-btn px-2 py-1 rounded-full text-xs transition-colors ${
+      active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+    }`;
+    el.setAttribute('aria-pressed', String(active));
+  });
+}
+// 底部提示随音阶 + 根音动态变化：直白显示当前调性（如「F 大调」）
+function syncAtHint(scale, root) {
+  const el = document.getElementById('mix-at-hint');
+  if (!el) return;
+  const keyName = AT_ROOTS[root] || AT_ROOTS[0];
+  const text =
+    scale <= 0
+      ? '半音阶包含全部十二个半音，根音不影响；调到 100% 就是电音那种硬性校准'
+      : `把唱偏的音自动吸附到 ${keyName} ${AT_SCALES[scale]}；调到 100% 就是电音那种硬性校准`;
+  el.textContent = text;
 }
 // 旁通开关 UI：开关亮 = 效果启用；点灭 = 旁通（三个效果区变暗提示当前不生效）
 function syncBypassUI() {
@@ -1304,19 +1329,30 @@ MIXER_PRESETS.forEach((p, i) => {
     if (!mixerTrack) return;
     // 声像是摆位、自动音准是音高行为，都不属于「音色」——应用预设时保留
     const cur = trackFx(mixerTrack);
-    mixerTrack.fx = { ...defaultFx(), ...p.fx, pan: cur.pan, autotune: cur.autotune, atScale: cur.atScale };
+    mixerTrack.fx = { ...defaultFx(), ...p.fx, pan: cur.pan, autotune: cur.autotune, atScale: cur.atScale, atRoot: cur.atRoot };
     syncMixerUI();
     applyLiveFx(mixerTrack);
     window.MFToast(`已应用「${p.label}」预设`);
   });
 });
-// 音阶切换（实时生效）
+// 音阶 / 根音切换（实时生效）
 AT_SCALES.forEach((_, i) => {
   document.getElementById(`mix-atScale-${i}`)?.addEventListener('click', () => {
     if (!mixerTrack) return;
     if (!mixerTrack.fx) mixerTrack.fx = defaultFx();
     mixerTrack.fx.atScale = i;
     syncAtScaleUI(i);
+    syncAtHint(i, mixerTrack.fx.atRoot);
+    applyLiveFx(mixerTrack);
+  });
+});
+AT_ROOTS.forEach((_, i) => {
+  document.getElementById(`mix-atRoot-${i}`)?.addEventListener('click', () => {
+    if (!mixerTrack) return;
+    if (!mixerTrack.fx) mixerTrack.fx = defaultFx();
+    mixerTrack.fx.atRoot = i;
+    syncAtRootUI(i);
+    syncAtHint(mixerTrack.fx.atScale, i);
     applyLiveFx(mixerTrack);
   });
 });

@@ -1,7 +1,7 @@
 // MuseFlow 自动音准（autotune）AudioWorklet 处理器
 // 算法：
 //   1) 检测：降采样（x2）+ DC 阻断 → 归一化自相关求基频，倍周期（低八度）纠偏 + 抛物线插值细化
-//   2) 吸附：基频换算 MIDI，吸附到最近音阶音（半音阶 / 大调 / 小调），按强度插值
+//   2) 吸附：基频换算 MIDI，吸附到最近音阶音（半音阶 / 大调 / 小调 × 十二个根音），按强度插值
 //   3) 变调：双抽头交叉淡化颗粒移频（delay-line pitch shifter），比率做 ~12ms 平滑
 // 关键设计——周期锁定颗粒（PSOLA 思路）：
 //   颗粒长度 G 始终锁定为基频的整数倍周期（G = 2·m·T），两个抽头的延迟差 G/2 = m·T
@@ -15,18 +15,22 @@ const SCALE_SETS = [
   [0, 2, 3, 5, 7, 8, 10], // 2 小调（以 C 为基准）
 ];
 
-function snapMidi(midi, scaleIdx) {
+// 吸附到最近音阶音。root 为根音（0=C, 1=C#, …, 11=B）：
+// 先把 MIDI 平移到「以根音为 C」的域里吸附，再平移回来。
+// 半音阶与根音无关（十二个半音全集），直接四舍五入。
+function snapMidi(midi, scaleIdx, root) {
   if (scaleIdx <= 0) return Math.round(midi);
+  const m = midi - root;
   const set = SCALE_SETS[scaleIdx] || SCALE_SETS[0];
-  let best = Math.round(midi);
+  let best = Math.round(m);
   let bestD = Infinity;
   for (let si = 0; si < set.length; si++) {
     const pc = set[si];
-    const cand = 12 * Math.round((midi - pc) / 12) + pc;
-    const d = Math.abs(cand - midi);
+    const cand = 12 * Math.round((m - pc) / 12) + pc;
+    const d = Math.abs(cand - m);
     if (d < bestD) { bestD = d; best = cand; }
   }
-  return best;
+  return best + root;
 }
 
 class MfAutotuneProcessor extends AudioWorkletProcessor {
@@ -34,6 +38,7 @@ class MfAutotuneProcessor extends AudioWorkletProcessor {
     return [
       { name: 'amount', defaultValue: 0, minValue: 0, maxValue: 100, automationRate: 'k-rate' },
       { name: 'scale', defaultValue: 0, minValue: 0, maxValue: 2, automationRate: 'k-rate' },
+      { name: 'root', defaultValue: 0, minValue: 0, maxValue: 11, automationRate: 'k-rate' },
     ];
   }
 
@@ -160,6 +165,7 @@ class MfAutotuneProcessor extends AudioWorkletProcessor {
     const nChOut = Math.min(output.length, 2);
     const amount = (params.amount.length ? params.amount[0] : params.amount) / 100;
     const scale = params.scale.length ? params.scale[0] : params.scale;
+    const root = params.root.length ? params.root[0] : params.root;
     // 强度 0：真·直通（不经颗粒链，零延迟零染色）
     if (amount <= 0.001) {
       for (let c = 0; c < nChOut; c++) {
@@ -185,7 +191,7 @@ class MfAutotuneProcessor extends AudioWorkletProcessor {
     let ratioT = 1;
     if (this.conf > 0.35 && this.f0 >= 70 && this.f0 <= 550) {
       const midi = 69 + 12 * Math.log2(this.f0 / 440);
-      const snapped = snapMidi(midi, scale);
+      const snapped = snapMidi(midi, scale, root);
       ratioT = Math.pow(2, ((snapped - midi) / 12) * amount);
       if (ratioT > 1.6) ratioT = 1.6;
       else if (ratioT < 0.63) ratioT = 0.63;
