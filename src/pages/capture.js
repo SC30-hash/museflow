@@ -335,15 +335,16 @@ async function startMonitor({ silent = false } = {}) {
   if (!targets.length) return fail('没有录音轨');
   try { await acquireMicStream(); } catch (err) { return fail(err?.message || '无法访问麦克风'); }
   if (!ensureLiveGraph()) return fail('无法创建音频图');
-  const chains = await Promise.all(targets.map((tr) => getLiveChain(tr).catch(() => null)));
+  const results = await Promise.all(targets.map(async (tr) => ({ tr, ch: await getLiveChain(tr).catch(() => null) })));
   if (!micSrc) {
     try { micSrc = _ac.createMediaStreamSource(sharedMicStream); } catch { return false; }
   } else {
     try { micSrc.disconnect(); } catch {}
   }
-  chains.forEach((ch) => {
+  results.forEach(({ tr, ch }) => {
     if (!ch) return;
-    try { micSrc.connect(ch.input); } catch {}
+    const dest = tr._trackGain || ch.input; // 经轨道闸门：静音同样作用于监听
+    try { micSrc.connect(dest); } catch {}
   });
   if (!silent) window.MFToast('监听已开启（建议戴耳机，避免啸叫）');
   return true;
@@ -437,7 +438,7 @@ function renderTracks() {
         <h3 class="text-[12px] font-medium leading-tight truncate">${escapeHtml(tr.name)}</h3>
       </div>
       <div class="flex items-center gap-0.5 shrink-0">
-        <button type="button" data-bt="M" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.muted ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="静音 (M)">M</button>
+        <button type="button" data-bt="M" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.muted ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="静音 (M)">M</button>
         <button type="button" data-bt="S" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.solo ? 'bg-muted text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="独奏 (S)">S</button>
         ${tr.kind === 'record' ? `<button type="button" data-bt="R" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.armed ? 'bg-red-500 text-white animate-pulse' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="Arm 录音 (R)">R</button>` : ''}
         <button type="button" data-bt="F" class="w-5 h-5 rounded flex items-center justify-center transition-colors ${(() => { const hasFx = !isDefaultFx(trackFx(tr)); return tr.bypass && hasFx ? 'bg-primary/10 text-primary/60 fx-slash' : hasFx ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'; })()}" title="混音台（长按旁通）"><i data-lucide="sliders-horizontal" class="w-3 h-3"></i></button>
@@ -447,7 +448,8 @@ function renderTracks() {
 
     // --- Arranger clips 区（右列）---
     const arr = document.createElement('div');
-    arr.className = 'relative h-[44px] bg-muted/10';
+    // 静音轨整行淡化，状态一眼可见
+    arr.className = `relative h-[44px] bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
     arr.style.width = `${totalDur * PX_PER_SEC}px`;
     // 垂直秒线（每 5 秒粗线）
     for (let s = 1; s <= totalDur; s++) {
@@ -618,11 +620,35 @@ async function getLiveChain(tr) {
       await loadAutotune(_ac); // 装好 worklet 再建链，保证自动音准可用
       tr._liveChain = createFxChain(_ac, trackFx(tr), reverbBusIn, masterGain);
       tr._liveChain.setBypass(!!tr.bypass);
+      // 轨道闸门：所有输入（播放元素 / 监听麦克风）先进增益节点再进 FX 链。
+      // 静音/独奏通过拉闸实时生效，不重建链、不打断播放。
+      if (!tr._trackGain) {
+        tr._trackGain = _ac.createGain();
+        tr._trackGain.gain.value = isTrackAudible(tr) ? 1 : 0; // 建闸时就按当前 M/S 状态初始化
+        tr._trackGain.connect(tr._liveChain.input);
+      }
     } catch {
       return null;
     }
   }
   return tr._liveChain;
+}
+// M/S 实时生效：拉/放所有轨道闸门 + 直连播放的元素用自身 muted 兜底
+function syncTrackGains() {
+  project.tracks.forEach((tr) => {
+    if (!tr._trackGain || !_ac) return;
+    const audible = isTrackAudible(tr);
+    try {
+      tr._trackGain.gain.setTargetAtTime(audible ? 1 : 0, _ac.currentTime, 0.008); // 短斜坡防咔哒
+    } catch {
+      tr._trackGain.gain.value = audible ? 1 : 0;
+    }
+  });
+  // 图建不起来时元素直连播放（不经闸门），用元素 muted 兜底；经图的元素双保险无害
+  activePlaybacks.forEach((p) => {
+    if (!p.track) return;
+    try { p.audio.muted = !isTrackAudible(p.track); } catch {}
+  });
 }
 // 滑杆调完后同步到 live 链（链不存在说明还没播过，播放时会按当前 fx 建）
 function applyLiveFx(tr) {
@@ -1200,6 +1226,8 @@ tracksBody.addEventListener('click', (e) => {
   if (!bt) return;
   if (bt === 'M') tr.muted = !tr.muted;
   if (bt === 'S') tr.solo = !tr.solo;
+  // M/S 播放/录音中实时生效：拉/放轨道闸门 + 同步直连元素
+  if (bt === 'M' || bt === 'S') syncTrackGains();
   if (bt === 'R') {
     if (tr.kind !== 'record') return;
     if (transportState !== 'idle') { window.MFToast('先停止再切换录音 Arm'); return; }
@@ -1217,6 +1245,7 @@ tracksBody.addEventListener('click', (e) => {
     if (transportState !== 'idle') { window.MFToast('先停止再删轨'); return; }
     tr.clips.forEach((c) => { try { c.audio.pause(); } catch {} if (c.url) try { URL.revokeObjectURL(c.url); } catch {} });
     if (tr._liveChain) { tr._liveChain.dispose(); tr._liveChain = null; }
+    if (tr._trackGain) { try { tr._trackGain.disconnect(); } catch {} tr._trackGain = null; }
     project.tracks = project.tracks.filter((x) => x.id !== id);
     // 监听开着时：被删轨的链已断，按剩余轨重新接入
     if (monitorOn) startMonitor({ silent: true }).catch(() => {});
@@ -1463,13 +1492,16 @@ function stopAllPlaybacks() {
 async function startPlayback(startSec) {
   stopAllPlaybacks();
   const gen = playbackGen;
-  // start every audible clip whose [startTime, startTime+duration] overlaps with startSec..∞
+  // start every clip whose [startTime, startTime+duration] overlaps with startSec..∞
   const nowSec = startSec;
-  const tracks = project.tracks.filter(isTrackAudible);
+  // 全部轨都建链建元素（静音/被独奏压掉的轨哑着跑），
+  // 播放中切 M/S 才能实时开/关声音——闸门由 syncTrackGains 控制
+  const tracks = project.tracks;
   // 先建好全部 FX 链（含自动音准 worklet 装载），再统一开播，避免各轨延迟不一致
   await Promise.all(tracks.map((tr) => getLiveChain(tr).catch(() => null)));
   if (gen !== playbackGen) return; // 等待期间已被停止
   for (const tr of tracks) {
+    const audible = isTrackAudible(tr);
     tr.clips.forEach((cl) => {
       const end = cl.startTime + cl.duration;
       if (end <= nowSec) return;
@@ -1477,12 +1509,14 @@ async function startPlayback(startSec) {
       const a = new Audio(cl.url);
       a.preload = 'auto';
       try { a.currentTime = offset; } catch {}
-      // 挂上该轨 FX 链（EQ/自动音准/压缩/混响）；图建不起来时退回直连播放（无 FX）
+      a.muted = !audible; // 静音轨元素照常跑（哑的），播放中取消静音立即出声
+      // 挂上该轨 FX 链（EQ/自动音准/压缩/混响），输入先进轨道闸门；
+      // 图建不起来时退回直连播放（无 FX，靠元素自身 muted 静音）
       const chain = tr._liveChain || null;
-      if (chain) {
-        try { _ac.createMediaElementSource(a).connect(chain.input); } catch {}
+      if (chain && tr._trackGain) {
+        try { _ac.createMediaElementSource(a).connect(tr._trackGain); } catch {}
       }
-      const pb = { audio: a, clip: cl, startedAt: performance.now(), playheadAtStart: nowSec };
+      const pb = { audio: a, clip: cl, track: tr, startedAt: performance.now(), playheadAtStart: nowSec };
       activePlaybacks.push(pb);
       a.play().catch(() => {});
       a.addEventListener('ended', () => {
@@ -1490,6 +1524,7 @@ async function startPlayback(startSec) {
       });
     });
   }
+  syncTrackGains(); // 闸门状态与元素 muted 对齐（防建链期间状态变化）
 }
 
 // ================== 时间轴点击 seek ==================
@@ -2356,11 +2391,15 @@ listEl?.addEventListener('click', async (e) => {
     const tracks = item.project?.tracks || [];
     if (!tracks.length) { window.MFToast('工程为空'); return; }
     try {
-      // 先释放当前 project 的资源
+      // 先释放当前 project 的资源（含 FX 链与轨道闸门，防节点泄漏）
       project.tracks.forEach((tr) => tr.clips.forEach((c) => {
         try { c.audio.pause(); } catch {}
         if (c.url) try { URL.revokeObjectURL(c.url); } catch {}
       }));
+      project.tracks.forEach((tr) => {
+        if (tr._liveChain) { try { tr._liveChain.dispose(); } catch {} tr._liveChain = null; }
+        if (tr._trackGain) { try { tr._trackGain.disconnect(); } catch {} tr._trackGain = null; }
+      });
       project.tracks = [];
       for (const tr of tracks) {
         const liveClips = [];
