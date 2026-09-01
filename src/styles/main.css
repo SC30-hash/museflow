@@ -1129,3 +1129,104 @@ input:focus, textarea:focus, select:focus {
   body.is-playing #bpm-display,
   #play-btn { animation: none !important; }
 }
+
+/* ================== 混音台滑杆（EQ / 压缩 / 混响） ================== */
+input[type='range'].mix-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 24px;
+  background: transparent;
+  cursor: pointer;
+  touch-action: pan-y;
+}
+input[type='range'].mix-slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--museflow-neutral-600);
+}
+input[type='range'].mix-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  margin-top: -6px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: var(--museflow-primary-500);
+  border: 2px solid var(--museflow-neutral-900);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+  transition: transform 0.12s ease;
+}
+input[type='range'].mix-slider:active::-webkit-slider-thumb {
+  transform: scale(1.25);
+}
+input[type='range'].mix-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--museflow-neutral-600);
+}
+input[type='range'].mix-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--museflow-primary-500);
+  border: 2px solid var(--museflow-neutral-900);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* ================== 混音台旁通开关（iOS 风格 toggle） ================== */
+button.mf-switch {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 42px;
+  height: 24px;
+  padding: 0;
+  border-radius: 999px;
+  background: var(--museflow-neutral-600);
+  position: relative;
+  cursor: pointer;
+  transition: background 0.18s ease;
+  -webkit-touch-callout: none;
+  user-select: none;
+  touch-action: manipulation;
+}
+button.mf-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #ffffff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 0.18s ease;
+}
+button.mf-switch[data-on='true'] {
+  background: var(--museflow-primary-500);
+}
+button.mf-switch[data-on='true']::after {
+  transform: translateX(18px);
+}
+
+/* ================== 轨道 F 按钮旁通态：斜杠划掉 ================== */
+button.fx-slash {
+  position: relative;
+}
+button.fx-slash::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 15px;
+  height: 1.5px;
+  border-radius: 2px;
+  background: currentColor;
+  transform: translate(-50%, -50%) rotate(-45deg);
+  pointer-events: none;
+}
+/* 防止移动端长按 F 按钮弹出系统菜单 */
+button[data-bt] {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}

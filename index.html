@@ -363,6 +363,167 @@
     </div>
   </div>
 
+  <!-- 混音台模态框（每轨 EQ / 压缩 / 混响） -->
+  <div id="mixer-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4">
+    <div class="absolute inset-0 bg-black/60 backdrop-blur-sm" data-close-mixer></div>
+    <div class="relative w-full max-w-md max-h-[85vh] rounded-2xl bg-card border border-border shadow-2xl flex flex-col overflow-hidden">
+      <!-- Header -->
+      <div class="flex items-center justify-between p-4 border-b border-border shrink-0">
+        <h3 class="text-base font-semibold flex items-center gap-2 min-w-0">
+          <i data-lucide="sliders-horizontal" class="w-4 h-4 text-primary shrink-0"></i>
+          <span class="truncate">混音 · <span id="mixer-track-name"></span></span>
+        </h3>
+        <button type="button" class="p-2 rounded-full hover:bg-muted" data-close-mixer aria-label="关闭">
+          <i data-lucide="x" class="w-5 h-5 text-muted-foreground"></i>
+        </button>
+      </div>
+      <!-- Body -->
+      <div class="flex-1 overflow-y-auto p-4 space-y-5">
+        <!-- 旁通总开关：点灭即旁通整条效果链 -->
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-1.5 min-w-0">
+            <i data-lucide="power" class="w-3.5 h-3.5 text-primary shrink-0"></i>
+            <span class="text-[13px] font-medium">启用效果器</span>
+            <span id="mix-bypass-state" class="text-[11px] text-muted-foreground/80"></span>
+          </div>
+          <button type="button" id="mix-bypass" class="mf-switch shrink-0" role="switch" aria-checked="true" aria-label="旁通效果器"></button>
+        </div>
+        <p class="text-[11px] text-muted-foreground/70 -mt-3">关闭后旁通 EQ / 自动音准 / 去齿音 / 饱和 / 压缩 / 混响（声像保留）；参数不会丢失</p>
+        <!-- EQ -->
+        <section id="mix-sec-eq">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="audio-waveform" class="w-3.5 h-3.5 text-primary"></i>均衡 EQ
+          </h4>
+          <div class="space-y-3">
+            <div class="flex items-center gap-3">
+              <span class="w-14 shrink-0 text-xs text-muted-foreground">超低</span>
+              <input id="mix-eqSub" type="range" min="-12" max="12" step="0.5" value="0" class="mix-slider flex-1" aria-label="超低增益" />
+              <span id="mix-eqSub-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0.0 dB</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="w-14 shrink-0 text-xs text-muted-foreground">低频</span>
+              <input id="mix-eqLow" type="range" min="-12" max="12" step="0.5" value="0" class="mix-slider flex-1" aria-label="低频增益" />
+              <span id="mix-eqLow-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0.0 dB</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="w-14 shrink-0 text-xs text-muted-foreground">中频</span>
+              <input id="mix-eqMid" type="range" min="-12" max="12" step="0.5" value="0" class="mix-slider flex-1" aria-label="中频增益" />
+              <span id="mix-eqMid-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0.0 dB</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="w-14 shrink-0 text-xs text-muted-foreground">高频</span>
+              <input id="mix-eqHigh" type="range" min="-12" max="12" step="0.5" value="0" class="mix-slider flex-1" aria-label="高频增益" />
+              <span id="mix-eqHigh-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0.0 dB</span>
+            </div>
+            <div class="flex items-center gap-3">
+              <span class="w-14 shrink-0 text-xs text-muted-foreground">空气感</span>
+              <input id="mix-eqAir" type="range" min="-12" max="12" step="0.5" value="0" class="mix-slider flex-1" aria-label="空气感增益" />
+              <span id="mix-eqAir-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0.0 dB</span>
+            </div>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">五段：80Hz 超低 / 250Hz 低 / 1kHz 中 / 4kHz 高 / 10kHz 空气感</p>
+        </section>
+        <!-- De-esser -->
+        <section id="mix-sec-deess">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="wind" class="w-3.5 h-3.5 text-primary"></i>去齿音
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">强度</span>
+            <input id="mix-deess" type="range" min="0" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="去齿音强度" />
+            <span id="mix-deess-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0%</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">压掉「嘶/咝」的刺耳气声，手机录人声建议 30-50%</p>
+        </section>
+        <!-- Autotune -->
+        <section id="mix-sec-at">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="music-2" class="w-3.5 h-3.5 text-primary"></i>自动音准
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">强度</span>
+            <input id="mix-autotune" type="range" min="0" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="自动音准强度" />
+            <span id="mix-autotune-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0%</span>
+          </div>
+          <div class="flex items-center gap-2 mt-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">音阶</span>
+            <div class="flex flex-wrap gap-1.5 flex-1">
+              <button type="button" id="mix-atScale-0" class="at-scale-btn px-2.5 py-1 rounded-full text-xs transition-colors" aria-pressed="true">半音阶</button>
+              <button type="button" id="mix-atScale-1" class="at-scale-btn px-2.5 py-1 rounded-full text-xs transition-colors" aria-pressed="false">大调</button>
+              <button type="button" id="mix-atScale-2" class="at-scale-btn px-2.5 py-1 rounded-full text-xs transition-colors" aria-pressed="false">小调</button>
+            </div>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">把唱偏的音自动吸附到音阶；调到 100% 就是电音那种硬性校准</p>
+        </section>
+        <!-- Saturation -->
+        <section id="mix-sec-sat">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="flame" class="w-3.5 h-3.5 text-primary"></i>饱和
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">强度</span>
+            <input id="mix-sat" type="range" min="0" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="饱和强度" />
+            <span id="mix-sat-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0%</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">磁带式软削波，声音更厚更有模拟味</p>
+        </section>
+        <!-- Compressor -->
+        <section id="mix-sec-comp">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="activity" class="w-3.5 h-3.5 text-primary"></i>压缩
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">强度</span>
+            <input id="mix-comp" type="range" min="0" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="压缩强度" />
+            <span id="mix-comp-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0%</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">拉高音量更稳更结实，0 为关闭</p>
+        </section>
+        <!-- Reverb -->
+        <section id="mix-sec-reverb">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-primary"></i>混响
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">湿度</span>
+            <input id="mix-reverb" type="range" min="0" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="混响湿度" />
+            <span id="mix-reverb-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">0%</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">加入空间感，人声和乐器更有氛围</p>
+        </section>
+        <!-- Pan -->
+        <section id="mix-sec-pan">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="move-horizontal" class="w-3.5 h-3.5 text-primary"></i>声像
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">位置</span>
+            <input id="mix-pan" type="range" min="-100" max="100" step="1" value="0" class="mix-slider flex-1" aria-label="声像位置" />
+            <span id="mix-pan-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">居中</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">左右摆放：人声居中，和声/乐器分两边更开阔</p>
+        </section>
+        <!-- Presets -->
+        <section class="pt-1 border-t border-border">
+          <p class="text-[11px] text-muted-foreground mb-2.5 mt-3">快捷预设</p>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" id="mix-preset-0" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">人声</button>
+            <button type="button" id="mix-preset-1" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">伴奏</button>
+            <button type="button" id="mix-preset-2" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">空间感</button>
+            <button type="button" id="mix-preset-3" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">磁性</button>
+            <button type="button" id="mix-preset-4" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">温暖</button>
+            <button type="button" id="mix-preset-5" class="px-3 py-1.5 rounded-full text-xs bg-primary/10 text-primary hover:bg-primary/20 transition-colors">明亮</button>
+            <button type="button" id="mix-preset-reset" class="px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground hover:text-foreground transition-colors">重置</button>
+          </div>
+        </section>
+      </div>
+      <!-- Footer -->
+      <div class="p-3 border-t border-border shrink-0">
+        <button type="button" id="mixer-done" class="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-sm font-medium active:scale-[0.98] transition-transform">完成</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 命名模态框 -->
   <div id="name-modal" class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm items-center justify-center p-4" style="display: none;">
     <div class="w-full max-w-md bg-card border border-border rounded-2xl shadow-xl p-5">

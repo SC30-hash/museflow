@@ -9,6 +9,7 @@
 import { refreshIcons, swapIcon } from '../lib/nav.js';
 import { captures, lyrics, nowstamp, uid } from '../lib/store.js';
 import { Mp3Encoder } from '@breezystack/lamejs';
+import { defaultFx, trackFx, isDefaultFx, buildIR, createFxChain, loadAutotune, REVERB_TAIL } from '../lib/fx.js';
 
 const REC_MODE = 'rec';
 const TEXT_MODE = 'text';
@@ -374,6 +375,7 @@ function renderTracks() {
         <button type="button" data-bt="M" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.muted ? 'bg-muted text-foreground' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="静音 (M)">M</button>
         <button type="button" data-bt="S" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.solo ? 'bg-muted text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="独奏 (S)">S</button>
         ${tr.kind === 'record' ? `<button type="button" data-bt="R" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.armed ? 'bg-red-500 text-white animate-pulse' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="Arm 录音 (R)">R</button>` : ''}
+        <button type="button" data-bt="F" class="w-5 h-5 rounded flex items-center justify-center transition-colors ${(() => { const hasFx = !isDefaultFx(trackFx(tr)); return tr.bypass && hasFx ? 'bg-primary/10 text-primary/60 fx-slash' : hasFx ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'; })()}" title="混音台（长按旁通）"><i data-lucide="sliders-horizontal" class="w-3 h-3"></i></button>
         <button type="button" data-bt="X" class="w-5 h-5 rounded bg-muted/50 text-muted-foreground flex items-center justify-center hover:text-destructive transition-colors" title="删除该轨"><i data-lucide="x" class="w-3 h-3"></i></button>
       </div>`;
     row.appendChild(strip);
@@ -518,10 +520,55 @@ async function decodeBlob(blob) {
   const ab = await blob.arrayBuffer();
   return _ac.decodeAudioData(ab.slice(0));
 }
-// 混音：把多条 clip 按 startTime 叠加到一个 AudioBuffer
+// ---- 混音音频图（live 播放用）：master 增益 + 共享混响总线 ----
+// 每轨一条 FX 链（EQ/压缩/混响 send），挂在 track._liveChain 上惰性创建/复用
+let masterGain = null;
+let reverbBusIn = null;
+function ensureLiveGraph() {
+  try {
+    if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (_ac.state === 'suspended') _ac.resume().catch(() => {});
+    if (!masterGain) {
+      masterGain = _ac.createGain();
+      masterGain.connect(_ac.destination);
+      const conv = _ac.createConvolver();
+      conv.buffer = buildIR(_ac);
+      const wet = _ac.createGain();
+      wet.gain.value = 0.9;
+      conv.connect(wet);
+      wet.connect(masterGain);
+      reverbBusIn = conv;
+      // 预热自动音准 worklet（异步装入，真正建链前会再 await 确认）
+      loadAutotune(_ac).catch(() => {});
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+async function getLiveChain(tr) {
+  if (!tr._liveChain) {
+    if (!ensureLiveGraph()) return null;
+    try {
+      await loadAutotune(_ac); // 装好 worklet 再建链，保证自动音准可用
+      tr._liveChain = createFxChain(_ac, trackFx(tr), reverbBusIn, masterGain);
+      tr._liveChain.setBypass(!!tr.bypass);
+    } catch {
+      return null;
+    }
+  }
+  return tr._liveChain;
+}
+// 滑杆调完后同步到 live 链（链不存在说明还没播过，播放时会按当前 fx 建）
+function applyLiveFx(tr) {
+  if (!tr || !tr._liveChain) return;
+  tr._liveChain.update(trackFx(tr));
+  tr._liveChain.setBypass(!!tr.bypass);
+}
+// 混音：所有 clip 经每轨 FX 链（EQ/压缩/混响）渲染到 OfflineAudioContext，
+// 与 live 播放共用同一套链构建逻辑，保证「导出的 = 听到的」
 async function mixProjectToBuffer(tracks, options = {}) {
   const { sampleRate = 44100 } = options;
-  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
   const anySolo = tracks.some((t) => t.solo);
   const active = tracks.filter((t) => !t.muted && (!anySolo || t.solo));
   const allClips = [];
@@ -530,53 +577,54 @@ async function mixProjectToBuffer(tracks, options = {}) {
       if (!c.blobDataURL && !c.blob) continue;
       const blob = c.blobDataURL ? await dataURLToBlob(c.blobDataURL) : c.blob;
       const buf = await decodeBlob(blob);
-      allClips.push({ buf, startTime: c.startTime || 0 });
+      // 旁通的轨按默认参数渲染（等效干声直通），与 live 软旁通行为一致；声像保留
+      allClips.push({ buf, startTime: c.startTime || 0, fx: tr.bypass ? { ...defaultFx(), pan: trackFx(tr).pan } : trackFx(tr) });
     }
   }
   if (!allClips.length) return null;
   let totalSec = 0;
+  let anyReverb = false;
   for (const cl of allClips) {
     const end = cl.startTime + cl.buf.duration;
     if (end > totalSec) totalSec = end;
+    if (cl.fx.reverb > 0) anyReverb = true;
   }
-  const totalLen = Math.ceil(totalSec * sampleRate);
-  const chCount = 2;
-  const mixed = _ac.createBuffer(chCount, totalLen, sampleRate);
-  const mixCh = [mixed.getChannelData(0), mixed.getChannelData(1)];
+  if (anyReverb) totalSec += REVERB_TAIL; // 混响尾巴也算进导出时长
+  const oac = new OfflineAudioContext(2, Math.ceil(totalSec * sampleRate), sampleRate);
+  await loadAutotune(oac); // 离线渲染也装上自动音准 worklet，导出与试听一致
+  const master = oac.createGain();
+  master.connect(oac.destination);
+  const conv = oac.createConvolver();
+  conv.buffer = buildIR(oac);
+  const wet = oac.createGain();
+  wet.gain.value = 0.9;
+  conv.connect(wet);
+  wet.connect(master);
+  // 同参数的轨共用一条链；BufferSource 会按目标采样率自动重采样
+  const chainCache = new Map();
   for (const cl of allClips) {
-    const src = cl.buf;
-    const offset = Math.round(cl.startTime * sampleRate);
-    const len = Math.min(src.length, totalLen - offset);
-    const srcChCount = Math.min(src.numberOfChannels, chCount);
-    for (let c = 0; c < srcChCount; c++) {
-      const srcCh = src.getChannelData(c);
-      const dstCh = mixCh[c];
-      for (let i = 0; i < len; i++) {
-        dstCh[offset + i] += srcCh[i];
-      }
-    }
-    // 单声道源：同样叠加到右声道
-    if (src.numberOfChannels === 1) {
-      const srcCh = src.getChannelData(0);
-      for (let i = 0; i < len; i++) {
-        mixCh[1][offset + i] += srcCh[i];
-      }
-    }
+    const key = JSON.stringify(cl.fx);
+    if (!chainCache.has(key)) chainCache.set(key, createFxChain(oac, cl.fx, conv, master));
+    const src = oac.createBufferSource();
+    src.buffer = cl.buf;
+    src.connect(chainCache.get(key).input);
+    src.start(Math.max(0, cl.startTime));
   }
-  // 归一化防止削波
+  const mixed = await oac.startRendering();
+  // 归一化防止削波（保留原有行为）
   let peak = 0;
-  for (let c = 0; c < chCount; c++) {
-    const d = mixCh[c];
-    for (let i = 0; i < totalLen; i++) {
+  for (let c = 0; c < 2; c++) {
+    const d = mixed.getChannelData(c);
+    for (let i = 0; i < mixed.length; i++) {
       const v = Math.abs(d[i]);
       if (v > peak) peak = v;
     }
   }
   if (peak > 1) {
     const g = 1 / peak;
-    for (let c = 0; c < chCount; c++) {
-      const d = mixCh[c];
-      for (let i = 0; i < totalLen; i++) d[i] *= g;
+    for (let c = 0; c < 2; c++) {
+      const d = mixed.getChannelData(c);
+      for (let i = 0; i < mixed.length; i++) d[i] *= g;
     }
   }
   return mixed;
@@ -1092,15 +1140,202 @@ tracksBody.addEventListener('click', (e) => {
     if (transportState !== 'idle') { window.MFToast('先停止再切换录音 Arm'); return; }
     tr.armed = !tr.armed;
   }
+  if (bt === 'F') {
+    // 长按已触发旁通切换，跳过紧随其后的 click，避免误开混音台
+    if (fxLongPressFired) { fxLongPressFired = false; return; }
+    openMixer(tr);
+    return; // 打开混音台不需要重绘轨道
+  }
   if (bt === 'X') {
     if (transportState !== 'idle') { window.MFToast('先停止再删轨'); return; }
     tr.clips.forEach((c) => { try { c.audio.pause(); } catch {} if (c.url) try { URL.revokeObjectURL(c.url); } catch {} });
+    if (tr._liveChain) { tr._liveChain.dispose(); tr._liveChain = null; }
     project.tracks = project.tracks.filter((x) => x.id !== id);
   }
   renderTracks();
 });
 
+// ================== 长按轨道 F 按钮：快速旁通/启用该轨效果器 ==================
+// 点按 F = 打开混音台（原有行为）；长按 350ms = 旁通切换，方便 A/B 对比听干湿
+let fxLongPressFired = false; // 长按触发后置 true，click 里消费掉以防误开混音台
+let fxBypassTimer = null;
+document.addEventListener('pointerdown', (e) => {
+  const btn = e.target?.closest?.('button[data-bt="F"]');
+  if (!btn) return;
+  fxLongPressFired = false; // 清掉上一次可能残留的标记（长按后滑走未产生 click 的情况）
+  const row = btn.closest('[data-track-id]');
+  const tr = row && project.tracks.find((x) => x.id === row.dataset.trackId);
+  if (!tr) return;
+  fxBypassTimer = setTimeout(() => {
+    fxBypassTimer = null;
+    fxLongPressFired = true;
+    toggleTrackBypass(tr);
+  }, 350);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach((ev) => {
+  document.addEventListener(
+    ev,
+    () => {
+      if (fxBypassTimer) {
+        clearTimeout(fxBypassTimer);
+        fxBypassTimer = null;
+      }
+    },
+    true
+  );
+});
+// 移动端长按避免触发系统上下文菜单
+document.addEventListener('contextmenu', (e) => {
+  if (e.target?.closest?.('button[data-bt="F"]')) e.preventDefault();
+});
+
 // 单击空白取消 playhead seek 之前的交互仍保留（下面那个 document.click 监听已不再依赖 selectedClip）
+
+// ================== Mixer：每轨 EQ / 压缩 / 混响 ==================
+const mixerModal = document.getElementById('mixer-modal');
+let mixerTrack = null; // 当前正在调参的轨道
+const MIXER_FIELDS = [
+  { key: 'eqSub', min: -12, max: 12, step: 0.5, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  { key: 'eqLow', min: -12, max: 12, step: 0.5, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  { key: 'eqMid', min: -12, max: 12, step: 0.5, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  { key: 'eqHigh', min: -12, max: 12, step: 0.5, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  { key: 'eqAir', min: -12, max: 12, step: 0.5, fmt: (v) => `${v > 0 ? '+' : ''}${v.toFixed(1)} dB` },
+  { key: 'autotune', min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` },
+  { key: 'deess', min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` },
+  { key: 'sat', min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` },
+  { key: 'comp', min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` },
+  { key: 'reverb', min: 0, max: 100, step: 1, fmt: (v) => `${Math.round(v)}%` },
+  { key: 'pan', min: -100, max: 100, step: 1, fmt: (v) => (Math.round(v) === 0 ? '居中' : v < 0 ? `左 ${Math.round(-v)}` : `右 ${Math.round(v)}`) },
+];
+// 快捷预设：一键到位常见场景/音色（不含声像——摆位属于编排，应用预设时保留当前声像）
+const MIXER_PRESETS = [
+  // 基础场景
+  { label: '人声', fx: { eqSub: -3, eqLow: -1, eqMid: 1.5, eqHigh: 2, eqAir: 2, deess: 40, sat: 12, comp: 55, reverb: 18 } },
+  { label: '伴奏', fx: { eqSub: 1, eqLow: 1, eqMid: -1, eqHigh: 1, eqAir: 0.5, deess: 0, sat: 18, comp: 30, reverb: 8 } },
+  { label: '空间感', fx: { eqSub: 0, eqLow: 0, eqMid: 0, eqHigh: 1.5, eqAir: 2, deess: 25, sat: 0, comp: 0, reverb: 55 } },
+  // 音色向
+  { label: '磁性', fx: { eqSub: -4, eqLow: 3, eqMid: 1, eqHigh: 1.5, eqAir: 0, deess: 30, sat: 45, comp: 45, reverb: 10 } },
+  { label: '温暖', fx: { eqSub: 1, eqLow: 2.5, eqMid: -0.5, eqHigh: -1.5, eqAir: -1, deess: 20, sat: 35, comp: 25, reverb: 15 } },
+  { label: '明亮', fx: { eqSub: -2, eqLow: -1, eqMid: 0, eqHigh: 3, eqAir: 3.5, deess: 45, sat: 10, comp: 25, reverb: 8 } },
+];
+function openMixer(tr) {
+  mixerTrack = tr;
+  if (!tr.fx) tr.fx = defaultFx();
+  const nameEl = document.getElementById('mixer-track-name');
+  if (nameEl) nameEl.textContent = tr.name || '轨道';
+  syncMixerUI();
+  syncBypassUI();
+  mixerModal?.classList.remove('hidden');
+  mixerModal?.classList.add('flex');
+}
+function closeMixer() {
+  mixerModal?.classList.add('hidden');
+  mixerModal?.classList.remove('flex');
+  mixerTrack = null;
+  renderTracks(); // 刷新 F 按钮高亮（有非默认 fx 时点亮）
+}
+function syncMixerUI() {
+  if (!mixerTrack) return;
+  const fx = trackFx(mixerTrack);
+  MIXER_FIELDS.forEach((f) => {
+    const el = document.getElementById(`mix-${f.key}`);
+    const val = document.getElementById(`mix-${f.key}-val`);
+    if (el) el.value = fx[f.key];
+    if (val) val.textContent = f.fmt(fx[f.key]);
+  });
+  syncAtScaleUI(fx.atScale);
+}
+// 自动音准的音阶切换按钮（0 半音阶 / 1 大调 / 2 小调）
+const AT_SCALES = ['半音阶', '大调', '小调'];
+function syncAtScaleUI(cur) {
+  AT_SCALES.forEach((_, i) => {
+    const el = document.getElementById(`mix-atScale-${i}`);
+    if (!el) return;
+    const active = i === cur;
+    el.className = `at-scale-btn px-2.5 py-1 rounded-full text-xs transition-colors ${
+      active ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:text-foreground'
+    }`;
+    el.setAttribute('aria-pressed', String(active));
+  });
+}
+// 旁通开关 UI：开关亮 = 效果启用；点灭 = 旁通（三个效果区变暗提示当前不生效）
+function syncBypassUI() {
+  if (!mixerTrack) return;
+  const on = !mixerTrack.bypass;
+  const sw = document.getElementById('mix-bypass');
+  if (sw) {
+    sw.dataset.on = String(on);
+    sw.setAttribute('aria-checked', String(on));
+  }
+  const stateEl = document.getElementById('mix-bypass-state');
+  if (stateEl) stateEl.textContent = on ? '' : '（旁通中）';
+  // 声像区不变暗：摆位不属于「效果」，旁通时依然生效
+  ['mix-sec-eq', 'mix-sec-at', 'mix-sec-deess', 'mix-sec-sat', 'mix-sec-comp', 'mix-sec-reverb'].forEach((id) => {
+    document.getElementById(id)?.classList.toggle('opacity-50', !on);
+  });
+}
+// 统一的旁通切换入口（长按 F / 混音台开关都走这里）
+function toggleTrackBypass(tr, opts = {}) {
+  tr.bypass = !tr.bypass;
+  applyLiveFx(tr); // 播放中实时生效
+  if (opts.fromMixer) syncBypassUI();
+  else renderTracks(); // 刷新轨道 F 按钮斜杠状态
+  window.MFToast(tr.bypass ? '已旁通效果器' : '已启用效果器');
+}
+// 混音台里的旁通总开关
+document.getElementById('mix-bypass')?.addEventListener('click', () => {
+  if (!mixerTrack) return;
+  toggleTrackBypass(mixerTrack, { fromMixer: true });
+});
+MIXER_FIELDS.forEach((f) => {
+  document.getElementById(`mix-${f.key}`)?.addEventListener('input', (e) => {
+    if (!mixerTrack) return;
+    if (!mixerTrack.fx) mixerTrack.fx = defaultFx();
+    const v = Number(e.target.value);
+    mixerTrack.fx[f.key] = v;
+    const val = document.getElementById(`mix-${f.key}-val`);
+    if (val) val.textContent = f.fmt(v);
+    applyLiveFx(mixerTrack); // 播放中实时生效
+  });
+});
+// 预设 / 重置
+MIXER_PRESETS.forEach((p, i) => {
+  document.getElementById(`mix-preset-${i}`)?.addEventListener('click', () => {
+    if (!mixerTrack) return;
+    // 声像是摆位、自动音准是音高行为，都不属于「音色」——应用预设时保留
+    const cur = trackFx(mixerTrack);
+    mixerTrack.fx = { ...defaultFx(), ...p.fx, pan: cur.pan, autotune: cur.autotune, atScale: cur.atScale };
+    syncMixerUI();
+    applyLiveFx(mixerTrack);
+    window.MFToast(`已应用「${p.label}」预设`);
+  });
+});
+// 音阶切换（实时生效）
+AT_SCALES.forEach((_, i) => {
+  document.getElementById(`mix-atScale-${i}`)?.addEventListener('click', () => {
+    if (!mixerTrack) return;
+    if (!mixerTrack.fx) mixerTrack.fx = defaultFx();
+    mixerTrack.fx.atScale = i;
+    syncAtScaleUI(i);
+    applyLiveFx(mixerTrack);
+  });
+});
+document.getElementById('mix-preset-reset')?.addEventListener('click', () => {
+  if (!mixerTrack) return;
+  mixerTrack.fx = defaultFx();
+  syncMixerUI();
+  applyLiveFx(mixerTrack);
+  window.MFToast('已重置');
+});
+document.getElementById('mixer-done')?.addEventListener('click', closeMixer);
+mixerModal?.querySelectorAll('[data-close-mixer]').forEach((el) => {
+  el.addEventListener('click', closeMixer);
+});
+// ESC 关闭
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && mixerModal && !mixerModal.classList.contains('hidden')) closeMixer();
+});
+
 
 // ================== Transport play/stop ==================
 // Should this track's clips play right now? (consider mute + solo rules)
@@ -1111,19 +1346,25 @@ function isTrackAudible(tr) {
   return true;
 }
 
+let playbackGen = 0; // 停止代数：异步建链期间若用户又停了，等待恢复后不再开播
 function stopAllPlaybacks() {
+  playbackGen++;
   activePlaybacks.forEach((p) => {
     try { p.audio.pause(); } catch {}
   });
   activePlaybacks = [];
 }
 
-function startPlayback(startSec) {
+async function startPlayback(startSec) {
   stopAllPlaybacks();
+  const gen = playbackGen;
   // start every audible clip whose [startTime, startTime+duration] overlaps with startSec..∞
   const nowSec = startSec;
-  project.tracks.forEach((tr) => {
-    if (!isTrackAudible(tr)) return;
+  const tracks = project.tracks.filter(isTrackAudible);
+  // 先建好全部 FX 链（含自动音准 worklet 装载），再统一开播，避免各轨延迟不一致
+  await Promise.all(tracks.map((tr) => getLiveChain(tr).catch(() => null)));
+  if (gen !== playbackGen) return; // 等待期间已被停止
+  for (const tr of tracks) {
     tr.clips.forEach((cl) => {
       const end = cl.startTime + cl.duration;
       if (end <= nowSec) return;
@@ -1131,6 +1372,11 @@ function startPlayback(startSec) {
       const a = new Audio(cl.url);
       a.preload = 'auto';
       try { a.currentTime = offset; } catch {}
+      // 挂上该轨 FX 链（EQ/自动音准/压缩/混响）；图建不起来时退回直连播放（无 FX）
+      const chain = tr._liveChain || null;
+      if (chain) {
+        try { _ac.createMediaElementSource(a).connect(chain.input); } catch {}
+      }
       const pb = { audio: a, clip: cl, startedAt: performance.now(), playheadAtStart: nowSec };
       activePlaybacks.push(pb);
       a.play().catch(() => {});
@@ -1138,7 +1384,7 @@ function startPlayback(startSec) {
         activePlaybacks = activePlaybacks.filter((p) => p !== pb);
       });
     });
-  });
+  }
 }
 
 // ================== 时间轴点击 seek ==================
@@ -1318,6 +1564,7 @@ async function transportRec() {
       muted: false,
       solo: false,
       armed: true,
+      fx: defaultFx(),
       clips: [],
     });
     recordTracks = project.tracks.filter((t) => t.kind === 'record');
@@ -1453,6 +1700,7 @@ document.getElementById('add-track-btn')?.addEventListener('click', () => {
     muted: false,
     solo: false,
     armed: false,
+    fx: defaultFx(),
     clips: [],
   });
   renderTracks();
@@ -1599,6 +1847,7 @@ document.getElementById('backing-file')?.addEventListener('change', async (e) =>
       muted: false,
       solo: false,
       armed: false,
+      fx: defaultFx(),
       clips: [clip],
     };
     // 伴奏追加到所有 backing 轨之后、record 轨之前；纯记录轨工程则放到最上面
@@ -1696,6 +1945,8 @@ document.getElementById('save-project-btn')?.addEventListener('click', async () 
         muted: tr.muted,
         solo: tr.solo,
         armed: false, // 保存后默认不 arm
+        fx: trackFx(tr), // 混音参数（EQ/压缩/混响）随工程保存
+        bypass: !!tr.bypass, // 旁通状态随工程保存
         clips: await serialClips(tr.clips),
       });
     }
@@ -1771,11 +2022,12 @@ function captureCardCheckbox(checked, id) {
     </label>`;
 }
 
-const projectPlayers = new Map(); // id -> { audios:[], playing }
+const projectPlayers = new Map(); // id -> { audios:[], chains:[], playing }
 function releaseProjectPlayer(id) {
   const p = projectPlayers.get(id);
   if (!p) return;
   (p.audios || []).forEach((a) => { try { a.pause(); } catch {} });
+  (p.chains || []).forEach((c) => { try { c.dispose(); } catch {} });
   projectPlayers.delete(id);
 }
 let currentlyPlaying = null; // legacy single-audio
@@ -2031,6 +2283,7 @@ listEl?.addEventListener('click', async (e) => {
           muted: !!tr.muted,
           solo: !!tr.solo,
           armed: false, // 载入后默认不 arm
+          fx: trackFx(tr), // 恢复混音参数（老工程缺省时为全默认）
           clips: liveClips,
         });
       }
@@ -2058,15 +2311,29 @@ listEl?.addEventListener('click', async (e) => {
     }
     // restore from base64
     const audios = [];
+    const chains = []; // 每轨一条 FX 链（EQ/压缩/混响），播放结束统一释放
     const tracks = item.project?.tracks || [];
     // 简单规则：所有 clips startTime=0 都一起从头播；按 clip.startTime 调度（setTimeout 相对偏移）
     const anySolo = tracks.some((t) => t.solo);
     try {
+      const graphOk = ensureLiveGraph();
+      if (graphOk) await loadAutotune(_ac).catch(() => {});
       for (const tr of tracks) {
         if (tr.muted) continue;
         if (anySolo && !tr.solo) continue;
+        let chain = null;
+        if (graphOk) {
+          try {
+            chain = createFxChain(_ac, trackFx(tr), reverbBusIn, masterGain);
+            chain.setBypass(!!tr.bypass);
+            chains.push(chain);
+          } catch {}
+        }
         for (const c of (tr.clips || [])) {
           const a = new Audio(URL.createObjectURL(await dataURLToBlob(c.blobDataURL)));
+          if (chain) {
+            try { _ac.createMediaElementSource(a).connect(chain.input); } catch {}
+          }
           const delayMs = (c.startTime || 0) * 1000;
           if (delayMs > 0) {
             setTimeout(() => a.play().catch(() => {}), delayMs);
@@ -2087,10 +2354,11 @@ listEl?.addEventListener('click', async (e) => {
         a.addEventListener('ended', checkEnded);
         a.addEventListener('pause', checkEnded);
       });
-      projectPlayers.set(id, { audios, playing: true });
+      projectPlayers.set(id, { audios, chains, playing: true });
       renderList();
     } catch (err) {
       console.error(err);
+      chains.forEach((c) => { try { c.dispose(); } catch {} });
       window.MFToast('工程回放失败');
     }
     return;
@@ -2294,6 +2562,7 @@ if (project.tracks.length === 0) {
     muted: false,
     solo: false,
     armed: false,
+    fx: defaultFx(),
     clips: [],
   });
 }
