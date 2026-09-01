@@ -1492,6 +1492,22 @@ document.addEventListener('keydown', (e) => {
 });
 
 // ================== Backing import（支持多文件 / 多伴奏轨，每条伴奏 = 一条独立轨）==================
+// 全部常见音频扩展名：audio/* 覆盖 MIME 检测正常的情况；
+// 显式扩展名兜底移动端 MIME 误报/缺失（如 .flac 被报成 application/octet-stream）
+const AUDIO_EXT_SET = new Set([
+  'mp3', 'wav', 'wave', 'ogg', 'oga', 'flac', 'm4a', 'm4b', 'm4p', 'm4r',
+  'aac', 'wma', 'aiff', 'aif', 'aifc', 'alac', 'opus', 'caf', 'amr',
+  '3gp', '3g2', 'mp2', 'mpga', 'weba', 'webm', 'dsf', 'ape',
+]);
+function isAudioFile(f) {
+  if (typeof f === 'string') return true; // 拖拽等场景由浏览器保证
+  if (f.type && f.type.startsWith('audio/')) return true;
+  // .ogg 在部分系统上被报成 application/ogg 或 video/ogg，仍视为音频
+  if (f.type === 'application/ogg' || f.type === 'video/ogg') return true;
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+  return AUDIO_EXT_SET.has(ext);
+}
+
 document.getElementById('import-backing-btn')?.addEventListener('click', () => document.getElementById('backing-file')?.click());
 document.getElementById('backing-file')?.addEventListener('change', (e) => {
   const files = Array.from(e.target.files || []);
@@ -1499,7 +1515,13 @@ document.getElementById('backing-file')?.addEventListener('change', (e) => {
   if (!files.length) return;
   const startAt = playBaseSec || 0; // 从当前 playhead 位置插入（默认 0）
   let imported = 0;
+  let skipped = 0;
   files.forEach((f, idx) => {
+    if (!isAudioFile(f)) {
+      skipped++;
+      window.MFToast(`「${f.name}」不是音频文件，已跳过`);
+      return;
+    }
     const url = URL.createObjectURL(f);
     const audio = new Audio(url);
     audio.preload = 'auto';
@@ -1512,10 +1534,6 @@ document.getElementById('backing-file')?.addEventListener('change', (e) => {
       startTime: startAt,
       duration: 0,
     };
-    audio.addEventListener('loadedmetadata', () => {
-      clip.duration = audio.duration || 30;
-      renderTracks();
-    });
     const displayName = f.name.length > 22 ? f.name.slice(0, 22) + '…' : f.name;
     const existSameName = project.tracks.some((t) => t.name === displayName);
     const finalName = existSameName
@@ -1535,9 +1553,33 @@ document.getElementById('backing-file')?.addEventListener('change', (e) => {
     if (firstRecIdx === -1) project.tracks.push(newTrack);
     else project.tracks.splice(firstRecIdx + idx, 0, newTrack);
     imported++;
+
+    // 格式不受浏览器支持时（如桌面 Chrome 的 WMA/AIFF）：移除该轨并明确提示，
+    // 不再留下一个时长为 0 的"空块"静默失败
+    let failed = false;
+    const failLoad = () => {
+      if (failed) return;
+      failed = true;
+      clearTimeout(metaTimer);
+      project.tracks = project.tracks.filter((t) => t !== newTrack);
+      try { URL.revokeObjectURL(url); } catch {}
+      renderTracks();
+      window.MFToast(`无法播放「${f.name}」：浏览器不支持该格式`);
+    };
+    audio.addEventListener('error', failLoad);
+    // 兜底超时：个别设备上既不触发 error 也不触发 loadedmetadata
+    const metaTimer = setTimeout(failLoad, 12000);
+    audio.addEventListener('loadedmetadata', () => {
+      clearTimeout(metaTimer);
+      // 流式/未知时长（Infinity）回退到 30s，与旧版行为一致
+      clip.duration = (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : 30;
+      renderTracks();
+    });
   });
   if (imported > 0) {
-    window.MFToast(imported === 1 ? '伴奏已导入' : `已导入 ${imported} 条伴奏`);
+    window.MFToast(skipped > 0
+      ? `已导入 ${imported} 条伴奏，跳过 ${skipped} 个非音频文件`
+      : (imported === 1 ? '伴奏已导入' : `已导入 ${imported} 条伴奏`));
     renderTracks();
   }
 });
