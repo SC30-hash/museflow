@@ -8,6 +8,7 @@
 
 import { refreshIcons, swapIcon } from '../lib/nav.js';
 import { captures, lyrics, nowstamp, uid } from '../lib/store.js';
+import { Mp3Encoder } from '@breezystack/lamejs';
 
 const REC_MODE = 'rec';
 const TEXT_MODE = 'text';
@@ -1508,20 +1509,72 @@ function isAudioFile(f) {
   return AUDIO_EXT_SET.has(ext);
 }
 
+// ---- 视频文件（MP4/MOV/MKV 等）→ 提取音轨编码为 MP3 导入 ----
+// 原理：decodeAudioData 只解码视频容器的音频轨道（Chrome/Safari 支持
+// MP4/AAC、WebM/Opus 等），再用 lamejs 在浏览器内编码 MP3，全程离线。
+const VIDEO_EXT_SET = new Set(['mp4', 'm4v', 'mov', 'avi', 'mkv', 'mpg', 'mpeg', 'flv', 'ts', 'wmv', 'vob']);
+function isVideoFile(f) {
+  if (typeof f === 'string') return false;
+  if (f.type && f.type.startsWith('video/')) {
+    // .webm/.ogg 的 audio-only 变体也带 video/ MIME，但能被 audio 元素直接播放，走音频路径
+    const ext = (f.name || '').split('.').pop().toLowerCase();
+    if (AUDIO_EXT_SET.has(ext)) return false;
+    return true;
+  }
+  const ext = (f.name || '').split('.').pop().toLowerCase();
+  return VIDEO_EXT_SET.has(ext);
+}
+function floatToInt16(f32) {
+  const out = new Int16Array(f32.length);
+  for (let i = 0; i < f32.length; i++) {
+    const s = Math.max(-1, Math.min(1, f32[i]));
+    out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  return out;
+}
+// 视频文件 → MP3 File（192kbps，保留声道数，采样率跟随源）
+async function videoFileToMp3File(f, onProgress) {
+  const buf = await decodeBlob(f); // 提取音频轨道并解码为 PCM
+  const ch = Math.min(buf.numberOfChannels, 2);
+  const enc = new Mp3Encoder(ch, buf.sampleRate, 192);
+  const left = floatToInt16(buf.getChannelData(0));
+  const right = ch === 2 ? floatToInt16(buf.getChannelData(1)) : null;
+  const chunks = [];
+  const BLOCK = 1152;
+  const total = left.length;
+  let lastReported = -1;
+  for (let i = 0; i < total; i += BLOCK) {
+    const b = right !== null
+      ? enc.encodeBuffer(left.subarray(i, i + BLOCK), right.subarray(i, i + BLOCK))
+      : enc.encodeBuffer(left.subarray(i, i + BLOCK));
+    if (b.length) chunks.push(new Uint8Array(b));
+    const pct = Math.floor((i / total) * 100);
+    if (pct % 10 === 0 && pct !== lastReported) {
+      lastReported = pct;
+      onProgress?.(pct);
+      // 让出主线程，长视频转换时不卡 UI
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+  const fin = enc.flush();
+  if (fin.length) chunks.push(new Uint8Array(fin));
+  const base = (f.name || 'audio').replace(/\.[^.]+$/, '');
+  return new File([new Blob(chunks, { type: 'audio/mpeg' })], `${base}.mp3`, { type: 'audio/mpeg' });
+}
+
 document.getElementById('import-backing-btn')?.addEventListener('click', () => document.getElementById('backing-file')?.click());
-document.getElementById('backing-file')?.addEventListener('change', (e) => {
+document.getElementById('backing-file')?.addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   e.target.value = '';
   if (!files.length) return;
   const startAt = playBaseSec || 0; // 从当前 playhead 位置插入（默认 0）
   let imported = 0;
   let skipped = 0;
-  files.forEach((f, idx) => {
-    if (!isAudioFile(f)) {
-      skipped++;
-      window.MFToast(`「${f.name}」不是音频文件，已跳过`);
-      return;
-    }
+  let converted = 0;
+  let failed = 0;
+
+  // 创建一条 backing 轨并挂载加载/失败处理，返回该轨（格式不支持时自行移除）
+  const insertBackingTrack = (f, idx) => {
     const url = URL.createObjectURL(f);
     const audio = new Audio(url);
     audio.preload = 'auto';
@@ -1552,14 +1605,13 @@ document.getElementById('backing-file')?.addEventListener('change', (e) => {
     const firstRecIdx = project.tracks.findIndex((t) => t.kind === 'record');
     if (firstRecIdx === -1) project.tracks.push(newTrack);
     else project.tracks.splice(firstRecIdx + idx, 0, newTrack);
-    imported++;
 
     // 格式不受浏览器支持时（如桌面 Chrome 的 WMA/AIFF）：移除该轨并明确提示，
     // 不再留下一个时长为 0 的"空块"静默失败
-    let failed = false;
+    let loadFailed = false;
     const failLoad = () => {
-      if (failed) return;
-      failed = true;
+      if (loadFailed) return;
+      loadFailed = true;
       clearTimeout(metaTimer);
       project.tracks = project.tracks.filter((t) => t !== newTrack);
       try { URL.revokeObjectURL(url); } catch {}
@@ -1575,11 +1627,42 @@ document.getElementById('backing-file')?.addEventListener('change', (e) => {
       clip.duration = (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : 30;
       renderTracks();
     });
-  });
+    return newTrack;
+  };
+
+  for (let idx = 0; idx < files.length; idx++) {
+    const f = files[idx];
+    if (isVideoFile(f)) {
+      try {
+        window.MFToast(`正在从「${f.name}」提取音轨转 MP3…`);
+        const mp3 = await videoFileToMp3File(f, (pct) => {
+          if (pct > 0 && pct < 100) window.MFToast(`MP3 编码中 ${pct}%`);
+        });
+        insertBackingTrack(mp3, idx);
+        imported++;
+        converted++;
+      } catch (err) {
+        failed++;
+        window.MFToast(`「${f.name}」无法提取音轨（视频编码不受浏览器支持）`);
+      }
+      continue;
+    }
+    if (!isAudioFile(f)) {
+      skipped++;
+      window.MFToast(`「${f.name}」不是音频文件，已跳过`);
+      continue;
+    }
+    insertBackingTrack(f, idx);
+    imported++;
+  }
   if (imported > 0) {
-    window.MFToast(skipped > 0
-      ? `已导入 ${imported} 条伴奏，跳过 ${skipped} 个非音频文件`
-      : (imported === 1 ? '伴奏已导入' : `已导入 ${imported} 条伴奏`));
+    const parts = [`已导入 ${imported} 条伴奏`];
+    if (converted > 0) parts.push(`${converted} 个视频已转 MP3`);
+    if (failed > 0) parts.push(`${failed} 个转换失败`);
+    if (skipped > 0) parts.push(`跳过 ${skipped} 个非音频文件`);
+    window.MFToast(imported === 1 && converted === 0 && skipped === 0 && failed === 0
+      ? '伴奏已导入'
+      : parts.join('，'));
     renderTracks();
   }
 });
