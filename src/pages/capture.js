@@ -396,7 +396,7 @@ function renderTracks() {
       el.style.left = `${cl.startTime * PX_PER_SEC}px`;
       el.style.width = `${cl.duration * PX_PER_SEC}px`;
       el.dataset.clipId = cl.id;
-      el.title = `${fmtTime(cl.startTime)} - ${fmtTime(cl.startTime + cl.duration)} · 拖动移动 · 双击任意位置剪开 · 长按删除`;
+      el.title = `${fmtTime(cl.startTime)} - ${fmtTime(cl.startTime + cl.duration)} · 拖动移动（触屏长按提起）· 三击删除 · 剪切模式点按剪开`;
       // waveform 容器
       const waveWrap = document.createElement('div');
       waveWrap.className = 'waveform-wrap absolute inset-0 flex items-center justify-center';
@@ -737,13 +737,22 @@ function deleteClip(cid) {
 
 // ---- 三次点击删除 / 拖动移动 ----
 // （原"长按删除 + 双击剪切"已移除：长按在移动端容易误触，双击和三次点击冲突。）
-const MOVE_TOL_PX = 6;      // 指针位移超过 6px 进入 drag
+const MOVE_TOL_PX = 6;      // 鼠标：位移超过 6px 进入 drag
 const TRIPLE_WINDOW_MS = 800; // 三次点击删除的时间窗口
+const TOUCH_LIFT_MS = 350;    // 触屏：长按 350ms「提起」音频块
+const TOUCH_SLOP_PX = 10;     // 触屏：等待提起期间允许的抖动（超过视为滚动意图）
+const EDGE_SCROLL_ZONE = 44;  // 拖动时靠近视口左右边缘 → 时间轴自动滚动
+const ROW_SWITCH_INSET = 10;  // 垂直换轨判定：手指需进入目标行内 10px（防误触）
 const clipClickTimes = new Map(); // clipId -> { count, last }
-let pressState = null;      // { cid, clipEl, startX, startY, pointerId, arr, origRect, dragMode, deltaX, startSec }
+let suppressClickUntil = 0;  // 提起/拖动结束后的合成 click 不计入三击删除
+let liftHintShown = false;   // 「已提起」提示只弹一次
+let dropRowEl = null;        // 跨轨拖动时高亮的目标行
+let dragBadgeEl = null;      // 拖动时跟随手指的时间徽标
+let edgeScrollRAF = null;    // 边缘自动滚动的 rAF 循环
+let pressState = null;      // { cid, clipEl, pointerType, startX, startY, lastX, lastY, pointerId, arr, arrId, origRect, origRowTop, rowRects, viewport, startScrollLeft, liftTimer, lifted, dragMode, deltaX, deltaY, targetRowId, startSec, durSec }
 function clearPress() {
   if (!pressState) return;
-  clearTimeout(pressState.timer);
+  clearTimeout(pressState.liftTimer);
   if (pressState.clipEl && pressState.clipEl.isConnected) {
     pressState.clipEl.classList.remove('press-flash');
     pressState.clipEl.style.transform = '';
@@ -752,8 +761,115 @@ function clearPress() {
     pressState.clipEl.style.filter = '';
     pressState.clipEl.style.outline = '';
     pressState.clipEl.style.outlineOffset = '';
+    pressState.clipEl.style.boxShadow = '';
   }
+  hideDragBadge();
+  highlightDropRow(null);
   pressState = null;
+  // edgeScrollRAF 循环下一帧检测到 pressState 为空会自行停止
+}
+
+// ---- 拖动视觉：跟随手指的时间徽标 + 目标轨道高亮 ----
+function ensureDragBadge() {
+  if (dragBadgeEl && dragBadgeEl.isConnected) return dragBadgeEl;
+  dragBadgeEl = document.createElement('div');
+  dragBadgeEl.id = 'drag-badge';
+  dragBadgeEl.style.display = 'none';
+  document.body.appendChild(dragBadgeEl);
+  return dragBadgeEl;
+}
+function hideDragBadge() {
+  if (dragBadgeEl) dragBadgeEl.style.display = 'none';
+}
+function highlightDropRow(rowId) {
+  if (dropRowEl) dropRowEl.classList.remove('drop-target');
+  dropRowEl = null;
+  if (!rowId) return;
+  const el = tracksBody.querySelector(`[data-track-id="${rowId}"]`);
+  if (el) { el.classList.add('drop-target'); dropRowEl = el; }
+}
+
+// ---- 触屏：长按「提起」音频块 ----
+function liftClip() {
+  if (!pressState || pressState.lifted) return;
+  pressState.lifted = true;
+  pressState.liftTimer = null;
+  const el = pressState.clipEl;
+  el.classList.remove('press-flash');
+  el.style.zIndex = '30';
+  el.style.cursor = 'grabbing';
+  el.style.transform = 'scale(1.05)';
+  el.style.filter = 'brightness(1.2) saturate(1.15)';
+  el.style.outline = '1px dashed rgba(245, 101, 101, .9)';
+  el.style.outlineOffset = '-2px';
+  el.style.boxShadow = '0 6px 18px rgba(0, 0, 0, .45)';
+  try { navigator.vibrate?.(12); } catch {}
+  if (!liftHintShown) {
+    liftHintShown = true;
+    window.MFToast('已提起 · 拖动调整位置，松手放下');
+  }
+}
+
+// ---- 拖动预览：水平跟随（补偿自动滚动）+ 垂直换轨 + 时间徽标 ----
+function applyDragPreview() {
+  const ps = pressState;
+  if (!ps || !ps.dragMode) return;
+  const scrollDelta = (ps.viewport ? ps.viewport.scrollLeft : 0) - ps.startScrollLeft;
+  const tx = ps.deltaX - scrollDelta;
+
+  // 垂直换轨：手指当前 y 落在哪一行（行内留边距防误触）
+  let ty = 0;
+  let target = null;
+  for (const r of ps.rowRects) {
+    if (ps.lastY > r.top + ROW_SWITCH_INSET && ps.lastY < r.top + r.h - ROW_SWITCH_INSET) { target = r; break; }
+  }
+  const tgt = target || ps.rowRects.find((r) => r.id === ps.arrId) || null;
+  if (tgt && tgt.id !== ps.arrId) {
+    ty = tgt.top - ps.origRowTop;
+    if (ps.targetRowId !== tgt.id) {
+      ps.targetRowId = tgt.id;
+      highlightDropRow(tgt.id);
+      try { navigator.vibrate?.(8); } catch {}
+    }
+  } else if (ps.targetRowId) {
+    ps.targetRowId = null;
+    highlightDropRow(null);
+  }
+  ps.clipEl.style.transform = `translate(${tx}px, ${ty}px) scale(1.05)`;
+
+  // 时间徽标：抓点相对块的偏移保持不变 → 实时换算落点时间
+  const arrNow = ps.arr.getBoundingClientRect();
+  const grabOff = ps.startX - ps.origRect.left;
+  const newStart = pxToStartTime(ps.arr, (ps.lastX - arrNow.left) - grabOff, ps.durSec || 0);
+  const badge = ensureDragBadge();
+  badge.style.display = 'block';
+  badge.style.left = `${ps.lastX}px`;
+  badge.style.top = `${ps.lastY}px`;
+  let label = fmtTime(newStart);
+  if (ps.targetRowId) {
+    const t = project.tracks.find((x) => x.id === ps.targetRowId);
+    if (t) label += ` → ${t.name.slice(0, 8)}`;
+  }
+  badge.textContent = label;
+}
+
+// ---- 拖到视口左右边缘：时间轴自动滚动（越深越快）----
+function startEdgeScrollLoop() {
+  if (edgeScrollRAF != null) return;
+  const step = () => {
+    const ps = pressState;
+    if (!ps || !ps.dragMode || !ps.viewport) { edgeScrollRAF = null; return; }
+    const vr = ps.viewport.getBoundingClientRect();
+    let v = 0;
+    if (ps.lastX < vr.left + EDGE_SCROLL_ZONE) v = -(vr.left + EDGE_SCROLL_ZONE - ps.lastX) * 0.25;
+    else if (ps.lastX > vr.right - EDGE_SCROLL_ZONE) v = (ps.lastX - (vr.right - EDGE_SCROLL_ZONE)) * 0.25;
+    if (v !== 0) {
+      ps.viewport.scrollLeft += Math.max(-18, Math.min(18, v));
+      applyDragPreview();
+    }
+    edgeScrollRAF = requestAnimationFrame(step);
+  };
+  edgeScrollRAF = requestAnimationFrame(step);
 }
 
 // 根据"相对于 arranger 的 x 像素"换算成 startTime，再对齐到 10ms 格子
@@ -770,83 +886,139 @@ function pxToStartTime(arrEl, relXPx, durSec) {
 tracksBody.addEventListener('pointerdown', (e) => {
   const clipEl = e.target.closest('[data-clip-id]');
   if (!clipEl) return;
+  if (splitMode) return;                                  // 剪切模式：点按剪开，不进入拖动
+  if (e.pointerType === 'mouse' && e.button !== 0) return;
+  if (pressState) return;                                 // 已有手势进行中（多指），忽略
   const cid = clipEl.dataset.clipId;
   if (transportState !== 'idle') { window.MFToast('先停止再编辑片段'); return; }
   const row = clipEl.closest('[data-track-id]');
-  const arr = row?.children[1]; // arranger 区
+  if (!row) return;
+  const arr = row.children[1]; // arranger 区
   if (!arr) return;
   const clipRect = clipEl.getBoundingClientRect();
+  const viewport = document.getElementById('arranger-viewport');
   pressState = {
     cid,
     clipEl,
+    pointerType: e.pointerType,
     startX: e.clientX,
     startY: e.clientY,
-    triggered: false,
+    lastX: e.clientX,
+    lastY: e.clientY,
     pointerId: e.pointerId,
     arr,
+    arrId: row.dataset.trackId,
     origRect: clipRect,
+    origRowTop: row.getBoundingClientRect().top,
+    rowRects: [...tracksBody.querySelectorAll('[data-track-id]')].map((r) => {
+      const rc = r.getBoundingClientRect();
+      return { id: r.dataset.trackId, top: rc.top, h: rc.height };
+    }),
+    viewport,
+    startScrollLeft: viewport ? viewport.scrollLeft : 0,
+    liftTimer: null,
+    lifted: false,
     dragMode: false,
     deltaX: 0,
+    deltaY: 0,
+    targetRowId: null,
     // 记录 clip 当前信息便于撤销/不重复查找
     startSec: 0,
+    durSec: 0,
   };
   const found = findClip(cid);
-  if (found) pressState.startSec = found.clip.startTime;
+  if (found) {
+    pressState.startSec = found.clip.startTime;
+    pressState.durSec = found.clip.duration;
+  }
   clipEl.classList.add('press-flash');
-  // 长按删除已移除 → 改为三次 click 计数删除（见下方 click 监听器）
   try { clipEl.setPointerCapture?.(e.pointerId); } catch {}
+  // 触屏：长按「提起」后才能拖（先滑动 = 滚动，归浏览器）
+  if (e.pointerType === 'touch') {
+    pressState.liftTimer = setTimeout(liftClip, TOUCH_LIFT_MS);
+  }
 });
 tracksBody.addEventListener('pointermove', (e) => {
-  if (!pressState) return;
+  if (!pressState || e.pointerId !== pressState.pointerId) return;
+  pressState.lastX = e.clientX;
+  pressState.lastY = e.clientY;
   const dx = e.clientX - pressState.startX;
   const dy = e.clientY - pressState.startY;
   const dist = Math.hypot(dx, dy);
-  // 首次超过阈值：进入 drag 模式
-  if (!pressState.dragMode && dist > MOVE_TOL_PX) {
+  // 触屏：还没「提起」就大幅移动 → 滚动意图，取消长按计时，让浏览器接管
+  if (pressState.pointerType === 'touch' && !pressState.lifted && !pressState.dragMode) {
+    if (dist > TOUCH_SLOP_PX && pressState.liftTimer) {
+      clearTimeout(pressState.liftTimer);
+      pressState.liftTimer = null;
+    }
+    return;
+  }
+  // 鼠标：超过阈值即可拖；触屏：必须已「提起」
+  const canDrag = pressState.pointerType === 'mouse' ? dist > MOVE_TOL_PX : pressState.lifted;
+  if (!pressState.dragMode && canDrag) {
     pressState.dragMode = true;
     pressState.clipEl.classList.remove('press-flash');
-    pressState.clipEl.style.zIndex = '20';
+    pressState.clipEl.style.zIndex = '30';
     pressState.clipEl.style.cursor = 'grabbing';
+    startEdgeScrollLoop();
   }
   if (pressState.dragMode) {
-    // 预览：在 % 基础上叠加 translateX px
+    // 预览：在原位基础上叠加 translate（水平分量要扣掉边缘自动滚动的位移）
     pressState.deltaX = dx;
-    pressState.clipEl.style.transform = `translateX(${dx}px)`;
-    pressState.clipEl.style.filter = 'brightness(1.2) saturate(1.15)';
-    pressState.clipEl.style.outline = '1px dashed rgba(245, 101, 101, .85)';
-    pressState.clipEl.style.outlineOffset = '-2px';
+    pressState.deltaY = dy;
+    applyDragPreview();
   }
 });
 tracksBody.addEventListener('pointerup', (e) => {
-  if (!pressState) return;
-  const dragMode = pressState.dragMode;
+  if (!pressState || e.pointerId !== pressState.pointerId) return;
   const ps = pressState;
+  ps.lastX = e.clientX;
+  ps.lastY = e.clientY;
+  const dragMode = ps.dragMode;
   clearPress();
-  if (dragMode) {
-    // 结束拖动：把 translateX 写入 startTime
-    const found = findClip(ps.cid);
-    if (found) {
-      const arrRect = ps.arr.getBoundingClientRect();
-      const origRelX = ps.origRect.left - arrRect.left;
-      const newRelX = origRelX + ps.deltaX;
-      const newStart = pxToStartTime(ps.arr, newRelX, found.clip.duration);
-      if (Math.abs(newStart - found.clip.startTime) > 0.005) {
-        found.clip.startTime = newStart;
-        renderTracks();
-      } else {
-        // 没实质移动，清理 transform 即可（clearPress 已经重置样式 transform）
-      }
-    }
-    e.preventDefault();
-    e.stopPropagation();
-    return;
+  if (dragMode || ps.lifted) {
+    // 提起/拖动结束：随后的合成 click 不计入三击删除
+    suppressClickUntil = Date.now() + 600;
   }
-  // 正常短按：什么都不做，让后续 click 事件处理三次点击计数
+  if (!dragMode) return; // 未拖动（含「提起后没动就松手」）：放回原位即可
+  // 结束拖动：把视觉位移写入 startTime（公式基于最终指针位置，天然免疫边缘自动滚动）
+  const found = findClip(ps.cid);
+  if (found) {
+    const arrNow = ps.arr.getBoundingClientRect();
+    const grabOff = ps.startX - ps.origRect.left; // 抓点在块内的偏移（滚动无关）
+    const newRelX = (ps.lastX - arrNow.left) - grabOff;
+    const newStart = pxToStartTime(ps.arr, newRelX, found.clip.duration);
+    const crossTrack = ps.targetRowId && ps.targetRowId !== ps.arrId;
+    const moved = crossTrack || Math.abs(newStart - found.clip.startTime) > 0.005;
+    if (moved) {
+      if (crossTrack) {
+        const dstTr = project.tracks.find((t) => t.id === ps.targetRowId);
+        const srcTr = found.tr;
+        if (dstTr && srcTr && dstTr !== srcTr) {
+          const i = srcTr.clips.indexOf(found.clip);
+          if (i >= 0) srcTr.clips.splice(i, 1);
+          found.clip.startTime = newStart;
+          dstTr.clips.push(found.clip);
+          window.MFToast(`已移到「${dstTr.name.slice(0, 10)}」`);
+        }
+      } else {
+        found.clip.startTime = newStart;
+      }
+      renderTracks();
+    }
+  }
+  e.preventDefault();
+  e.stopPropagation();
 });
 tracksBody.addEventListener('pointercancel', clearPress);
 tracksBody.addEventListener('lostpointercapture', (e) => {
   if (pressState && pressState.pointerId === e.pointerId) clearPress();
 });
+// 触屏关键：块「提起」后接管手势，阻止浏览器把拖动变成滚动
+// （首个 touchmove preventDefault 即可取消平移；未提起时不拦截，滚动照常）
+tracksBody.addEventListener('touchmove', (e) => {
+  if (pressState && (pressState.lifted || pressState.dragMode)) e.preventDefault();
+}, { passive: false });
 
 // 双击剪切已移除（和三次点击删除冲突，浏览器三次连点会触发 dblclick）。
 // splitClipAtOffset 函数保留备用，未来如需恢复剪切可重新挂 dblclick 监听器。
@@ -877,6 +1049,7 @@ tracksBody.addEventListener('click', (e) => {
   // === 三次点击删除 clip（替代原长按删除） ===
   // 三次连续点击同一个 clip（间隔 < TRIPLE_WINDOW_MS）即触发删除
   const clipEl = e.target.closest('[data-clip-id]');
+  if (clipEl && Date.now() < suppressClickUntil) return; // 拖动/提起结束后的合成 click 不计入三击
   if (clipEl) {
     const cid = clipEl.dataset.clipId;
     const now = Date.now();

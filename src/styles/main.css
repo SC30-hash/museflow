@@ -903,6 +903,37 @@ body.in-wide-mode .page-main {
   background: rgba(229, 62, 62, 0.5);
 }
 
+/* ================== 触屏音频块拖动（长按「提起」→ 拖动）================== */
+/* 禁用 iOS 长按系统行为（文字放大镜/呼出菜单）；触屏保持可平移，
+   块「提起」后由 JS 在 touchmove 上 preventDefault 接管手势 */
+[data-clip-id] {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  touch-action: pan-x pan-y;
+}
+/* 跨轨拖动时目标轨道高亮 */
+[data-track-id].drop-target {
+  box-shadow: inset 0 0 0 2px rgba(245, 101, 101, .55);
+  background: rgba(245, 101, 101, .05);
+}
+/* 拖动时跟随手指的时间徽标 */
+#drag-badge {
+  position: fixed;
+  z-index: 60;
+  pointer-events: none;
+  transform: translate(-50%, -150%);
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--museflow-primary);
+  color: var(--museflow-primary-foreground);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .4);
+}
+
 /* 歌词分类筛选栏 — 横向滚动条（滑轨）红色 */
 #lyric-cat-bar {
   scrollbar-width: thin;
