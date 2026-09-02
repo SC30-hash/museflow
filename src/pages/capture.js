@@ -303,7 +303,20 @@ let sharedMicStream = null;
 async function acquireMicStream() {
   if (sharedMicStream) return sharedMicStream;
   if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('不支持录音');
-  sharedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  // 音乐录音关掉浏览器默认开启的语音 DSP（AEC / 降噪 / AGC）：
+  // 根因——{audio:true} 默认开启回声消除，iOS/Android 会随之切进「通话模式」，
+  // 系统把媒体输出整体压低（iOS 还会切到听筒）——录音时伴奏变小的元凶。
+  // 另外这三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸），
+  // 音乐录音要原始信号。代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
+  const musicMic = {
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  };
+  try {
+    sharedMicStream = await navigator.mediaDevices.getUserMedia(musicMic);
+  } catch {
+    // 个别老浏览器不认非基本约束：退回默认申请（行为与旧版一致）
+    sharedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  }
   return sharedMicStream;
 }
 function releaseMicStream() {
