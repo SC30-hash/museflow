@@ -154,9 +154,11 @@
       </main>
 
       <!-- =================== View: 小样 (demos) =================== -->
-      <main class="page-main px-4 py-5 space-y-5 hidden" data-view="demos">
+      <main class="page-main px-4 py-5 flex flex-col gap-4 overflow-hidden hidden" data-view="demos" style="height: calc(100dvh - var(--museflow-safe-top) - 73px);">
+        <!-- Top area: Upload + Analysis (6) -->
+        <div class="flex flex-col gap-4 min-h-0" style="flex: 6 1 0%;">
         <!-- Upload zone -->
-        <section id="upload-zone" class="bg-card border border-border rounded-2xl p-4 shadow-sm cursor-pointer transition-all duration-200">
+        <section id="upload-zone" class="bg-card border border-border rounded-2xl p-4 shadow-sm cursor-pointer transition-all duration-200 shrink-0">
           <div class="border-2 border-dashed border-border rounded-xl p-6 text-center hover:border-primary/50 hover:bg-primary/[0.03] transition-all duration-200">
             <input type="file" id="file-input" accept="audio/*,.mid,.midi,.mp3,.wav,.wave,.ogg,.oga,.flac,.m4a,.m4b,.m4p,.m4r,.aac,.wma,.aiff,.aif,.aifc,.alac,.opus,.caf,.amr,.3gp,.3g2,.mp2,.mpga,.weba,.webm,.dsf,.ape" class="hidden" />
             <div class="flex flex-col items-center gap-3">
@@ -175,7 +177,7 @@
         </section>
 
         <!-- Analysis status / result -->
-        <section id="analysis-section" class="hidden">
+        <section id="analysis-section" class="hidden shrink-0">
           <div id="analyzing-state" class="hidden bg-card border border-border rounded-2xl p-4 shadow-sm flex items-center gap-4">
             <div class="w-10 h-10 rounded-full bg-primary/20 flex items-center justify-center shrink-0">
               <div class="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin"></div>
@@ -211,10 +213,13 @@
             </div>
           </div>
         </section>
+        </div><!-- /top area (6) -->
 
+        <!-- Bottom area: Saved demos list (4) -->
+        <div class="flex flex-col min-h-0" style="flex: 4 1 0%;">
         <!-- Saved demos list -->
-        <section class="space-y-3" id="demo-list-section">
-          <div class="flex items-center justify-between px-1">
+        <section class="flex flex-col min-h-0 flex-1" id="demo-list-section">
+          <div class="flex items-center justify-between px-1 shrink-0">
             <h2 class="text-base font-semibold flex items-center gap-1.5"><i data-lucide="folder-open" class="w-4 h-4 text-primary"></i>已保存的小样</h2>
             <div class="flex items-center gap-2">
               <button type="button" id="demos-toggle-select" class="text-[11px] px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
@@ -223,7 +228,7 @@
               <span id="demo-count" class="text-xs text-muted-foreground"></span>
             </div>
           </div>
-          <div id="demos-select-bar" class="hidden mb-2 flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border">
+          <div id="demos-select-bar" class="hidden mb-2 flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border shrink-0">
             <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
               <input type="checkbox" id="demos-select-all" class="accent-primary rounded-sm" />
               <span>全选</span>
@@ -236,18 +241,19 @@
               <button type="button" id="demos-select-cancel" class="px-2.5 py-1 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">取消</button>
             </div>
           </div>
-          <div id="demo-list" class="space-y-2">
+          <div id="demo-list" class="space-y-2 overflow-y-auto flex-1 min-h-0">
             <!-- populated by JS -->
           </div>
         </section>
 
         <!-- Empty state -->
-        <section id="empty-state" class="py-8 flex flex-col items-center text-center">
+        <section id="empty-state" class="py-8 flex flex-col items-center text-center shrink-0">
           <div class="empty-state-icon w-14 h-14 rounded-full flex items-center justify-center mb-3">
             <i data-lucide="music-2" class="w-6 h-6"></i>
           </div>
           <p class="text-sm text-muted-foreground">上传文件后，检测结果会出现在这里</p>
         </section>
+        </div><!-- /bottom area (4) -->
       </main>
 
       <!-- =================== View: 歌词 (lyrics) =================== -->
