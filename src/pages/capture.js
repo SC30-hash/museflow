@@ -327,7 +327,51 @@ async function acquireMicStream() {
   }
   stream = await avoidBluetoothHfpMic(stream, musicConstraints);
   sharedMicStream = stream;
+  applyMusicSessionForMic(sharedMicStream);
   return sharedMicStream;
+}
+// ---- iOS 音频会话路由（Safari 16.4+）----
+// 外放录音没声音的第一元凶：Safari 开麦后系统把输出切到听筒
+// （WebKit 设 playAndRecord 类别但不带 defaultToSpeaker 选项，bug 218012），
+// 大喇叭直接静音，声音全从贴耳小听筒出来——听感就是“外放没声音”。
+// navigator.audioSession（W3C 提案，iOS 16.4+ 落地）允许页面声明会话类型：
+// 录音期间声明 'playback'，系统保持扬声器正常输出、音量不受压
+// （bug 218012 #38 在 iOS 16.4 实测确认，麦克风采集不受影响）。
+let micSessionActive = false;
+let earpieceTipShown = false;
+function applyMusicSessionForMic(stream) {
+  const as = navigator.audioSession;
+  if (!as) {
+    // iOS < 16.4 没有此 API：无法阻止系统把输出切到听筒，给一次对症提示
+    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (isIOS && !earpieceTipShown) {
+      earpieceTipShown = true;
+      window.MFToast('当前 iOS 版本较旧：录音期间系统可能把伴奏切到听筒（外放会没声音、贴近耳朵才能听到）。升级到 iOS 16.4 以上可彻底解决');
+    }
+    return;
+  }
+  try {
+    as.type = 'playback';
+    micSessionActive = true;
+    // 保险：万一个别版本掐掉采集（track 意外结束），退回 'play-and-record'
+    // 保住录音能力（输出可能回听筒，但录音优先）
+    const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
+    if (tr) {
+      tr.addEventListener('ended', () => {
+        if (!micSessionActive) return; // 我们主动停的（正常释放/换麦）：不算事故
+        micSessionActive = false;
+        try { as.type = 'play-and-record'; } catch {}
+      }, { once: true });
+    }
+  } catch { /* 赋值被拒：维持浏览器默认行为 */ }
+}
+// 麦克风释放时还原会话类型，交回浏览器默认管理
+function clearMusicSession() {
+  micSessionActive = false;
+  const as = navigator.audioSession;
+  if (!as) return;
+  try { as.type = 'auto'; } catch {}
 }
 // 检测当前音源是否疑似蓝牙免提麦（通话级）。
 // Safari/Chrome 在 HFP 下都会如实报 sampleRate=16000；采样率未上报时退回设备名识别。
@@ -403,6 +447,7 @@ async function avoidBluetoothHfpMic(stream, musicConstraints) {
 }
 function releaseMicStream() {
   if (sharedMicStream) {
+    clearMusicSession(); // 先置非活动标志再停轨，避免 ended 误判为采集事故
     sharedMicStream.getTracks().forEach((t) => t.stop());
     sharedMicStream = null;
   }
@@ -699,18 +744,32 @@ function ensureAC() {
     } catch {
       _ac = new AC(); // 极老浏览器不认 options：退回默认采样率
     }
+    // 引擎一旦掉出 running（挂起/被打断）就自动尝试复活；
+    // 手势 / 设备变化 / 回前台的兜底监听见 engineKeepAlive
+    if (_ac) _ac.onstatechange = () => { if (_ac.state !== 'running') _ac.resume().catch(() => {}); };
   }
   return _ac;
 }
-// 首次用户手势即预热引擎：手势内创建的 context 可立即出声，
-// 且保证引擎在任何录音开始之前就已按 48kHz 就位（不给时序竞态任何机会）
-(function bootEngineOnGesture() {
-  const boot = () => {
+// 引擎保活：拔插蓝牙耳机、切换外放、锁屏返回、来电打断等都会让 Safari
+// 把引擎挂到 suspended / interrupted（后者为 Safari 特有状态），此后整页
+// 静音——切到外放后“伴奏没声音”的第二元凶。旧代码只在首次手势 resume
+// 一次（once），打断一次就永远哑掉。现在常驻监听一切复活时机。
+(function engineKeepAlive() {
+  const revive = () => {
     const c = ensureAC();
-    if (c && c.state === 'suspended') c.resume().catch(() => {});
+    if (c && c.state !== 'running') c.resume().catch(() => {});
   };
-  document.addEventListener('pointerdown', boot, { once: true, capture: true });
-  document.addEventListener('keydown', boot, { once: true, capture: true });
+  // 每次手势都尝试复活（running 时 resume 为幂等空操作，无害）
+  document.addEventListener('pointerdown', revive, true);
+  document.addEventListener('keydown', revive, true);
+  // 音频设备增删（拔蓝牙/切外放）后引擎常被打断：立即 + 延迟各救一次
+  navigator.mediaDevices?.addEventListener?.('devicechange', () => {
+    revive();
+    setTimeout(revive, 400);
+    setTimeout(revive, 1500);
+  });
+  // 从后台/锁屏回来时恢复
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) revive(); });
 })();
 async function decodeBlob(blob) {
   ensureAC();
@@ -730,7 +789,7 @@ let reverbBusIn = null;
 function ensureLiveGraph() {
   try {
     if (!ensureAC()) return false; // 统一 48kHz 入口（旧代码在此处直接 new，可能被锁低采样率）
-    if (_ac.state === 'suspended') _ac.resume().catch(() => {});
+    if (_ac.state !== 'running') _ac.resume().catch(() => {}); // suspended/interrupted 都救
     if (!masterGain) {
       masterGain = _ac.createGain();
       masterGain.connect(_ac.destination);
