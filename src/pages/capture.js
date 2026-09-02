@@ -323,6 +323,7 @@ function setupTrackResize(row, tr) {
   const handle = document.createElement('div');
   handle.className = 'track-resize-handle';
   handle.title = '拖动调整轨道高度（双击复位）';
+  handle.style.left = `${CHANNEL_PX}px`; // 只盖编排区底边，不挡左侧通道条的 M/S/R/F/X 按钮
   row.appendChild(handle);
   handle.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
@@ -777,7 +778,7 @@ function renderTracks() {
     strip.className = 'px-2 py-1.5 border-r border-border bg-muted/40 flex items-center gap-1.5';
     strip.style.minHeight = `${h}px`; // 竖向缩放：跟随该轨高度
     const icon = tr.kind === 'backing' ? 'music-4' : 'mic';
-    const accent = tr.kind === 'backing' ? 'bg-secondary/20 text-secondary-foreground' : 'bg-primary/15 text-primary';
+    const accent = tr.kind === 'backing' ? 'track-icon-backing' : 'bg-primary/15 text-primary';
     strip.innerHTML = `
       <div class="w-7 h-7 rounded-full ${accent} flex items-center justify-center shrink-0">
         <i data-lucide="${icon}" class="w-3.5 h-3.5"></i>
@@ -813,7 +814,7 @@ function renderTracks() {
     tr.clips.forEach((cl) => {
       const el = document.createElement('div');
       const isBacking = tr.kind === 'backing';
-      el.className = `absolute top-1 bottom-1 rounded-md border ${isBacking ? 'bg-secondary/40 border-secondary/60' : 'bg-primary/40 border-primary/60'} hover:brightness-110 transition-all cursor-pointer overflow-hidden select-none`;
+      el.className = `absolute top-1 bottom-1 rounded-md border ${isBacking ? 'clip-backing' : 'clip-record'} hover:brightness-110 transition-all cursor-pointer overflow-hidden select-none`;
       el.style.left = `${cl.startTime * PX_PER_SEC}px`;
       el.style.width = `${cl.duration * PX_PER_SEC}px`;
       el.dataset.clipId = cl.id;
@@ -867,43 +868,59 @@ async function drawWaveform(containerEl, clip, isBacking) {
     }
   }
 }
-// 取波形左右峰值：把 buf.length 分成 N 份，每份取最大绝对值
+// ---- Waveform 绘制：Studio One 式「连续填充包络」----
+// 旧实现是一根根竖线 bar（频谱条风格），不是 DAW 的波形。正经 DAW（Studio One /
+// Cubase / Pro Tools）的波形是连续填充的包络面，两层叠加：
+//   峰值包络（半透明外层）——勾出瞬态轮廓，鼓点、齿音的尖峰都在这层
+//   RMS 有效值包络（实心内芯）——比峰值矮、包在峰值里，波形「有身体」的关键
+// 两层同色系不同透明度叠加 = 立体感；包络边缘 1px 亮线勾边（non-scaling-stroke
+// 保证被 preserveAspectRatio=none 拉伸后仍是 1 物理像素，不会糊成一团）。
 function computeWaveSVG(buf, isBacking) {
-  const N = 180; // 180 条 bar（视觉已经够细，和 DAW 差不多）
+  // 分辨率随时长自适应：短片段（人声 punch-in）放大后点更密，长伴奏封顶防内存膨胀
+  const N = Math.max(1, Math.min(2000, Math.max(1000, Math.ceil((buf.duration || 1) * 40)), buf.length));
   const chCount = Math.min(buf.numberOfChannels, 2);
-  const samplesPerBar = Math.max(1, Math.floor(buf.length / N));
-  // bar 的 stroke 颜色：伴奏深灰、录音深红
-  const stroke = isBacking ? '#324155' : '#c53030';
-  const bars = new Array(N);
+  const samplesPerSeg = Math.max(1, Math.floor(buf.length / N));
+  // 配色：伴奏暖浅灰系、录音红系；峰值层更透（0.28/0.30）让两层呼吸感分明，
+  // RMS 层实心做「芯」，包络边缘亮线勾轮廓
+  const peakFill = isBacking ? 'rgba(217,203,184,0.28)' : 'rgba(245,101,101,0.30)';
+  const rmsFill = isBacking ? 'rgba(235,224,208,0.95)' : 'rgba(252,129,129,0.95)';
+  const edge = isBacking ? 'rgba(232,220,203,0.8)' : 'rgba(252,129,129,0.9)';
+  const peaks = new Float32Array(N);
+  const rmss = new Float32Array(N);
   for (let i = 0; i < N; i++) {
-    const s0 = i * samplesPerBar;
-    const s1 = Math.min(buf.length, s0 + samplesPerBar);
-    let peak = 0;
+    const s0 = i * samplesPerSeg;
+    const s1 = Math.min(buf.length, s0 + samplesPerSeg);
+    let peak = 0, sum = 0, cnt = 0;
     for (let c = 0; c < chCount; c++) {
       const ch = buf.getChannelData(c);
       for (let s = s0; s < s1; s++) {
-        const v = Math.abs(ch[s]);
-        if (v > peak) peak = v;
+        const v = ch[s];
+        const a = v < 0 ? -v : v;
+        if (a > peak) peak = a;
+        sum += v * v;
       }
+      cnt += s1 - s0;
     }
-    // 峰值非线性曲线（小音量也看得清）
-    const amp = Math.pow(Math.min(1, peak), 0.6);
-    bars[i] = amp;
+    // 非线性曲线（小音量也看得清）；峰值/RMS 同曲线，保持两层比例关系
+    peaks[i] = Math.pow(Math.min(1, peak), 0.6);
+    rmss[i] = Math.pow(Math.min(1, cnt ? Math.sqrt(sum / cnt) : 0), 0.6);
   }
-  // viewBox 0..N x 0..30：中线 15，上下各 amp*14
-  let d = '';
-  for (let i = 0; i < N; i++) {
-    const x = i + 0.5;
-    const amp = bars[i] * 14;
-    const y1 = 15 - amp;
-    const y2 = 15 + amp;
-    if (y2 - y1 < 0.25) {
-      d += `<line x1="${x.toFixed(2)}" y1="14.8" x2="${x.toFixed(2)}" y2="15.2" stroke="${stroke}" stroke-opacity=".55" stroke-width="0.7"/>`;
-    } else {
-      d += `<line x1="${x.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x.toFixed(2)}" y2="${y2.toFixed(2)}" stroke="${stroke}" stroke-width="0.85" stroke-linecap="round"/>`;
-    }
-  }
-  return `<svg class="w-full h-full wave-bar" viewBox="0 0 ${N} 30" preserveAspectRatio="none" aria-hidden="true">${d}</svg>`;
+  // viewBox 0..N × 0..30：中线 15，最大幅 14.2（留 0.8 给描边，不出血）
+  const MID = 15, AMP = 14.2;
+  // 半边包络 path：从 (0,中线) 沿各采样点到 (N,中线) 闭合的实心面
+  // dir=-1 上半边（y = MID - amp），dir=+1 下半边（镜像）
+  const halfPath = (vals, dir) => {
+    let d = `M0 ${MID}`;
+    for (let i = 0; i < N; i++) d += `L${i} ${(MID - dir * vals[i] * AMP).toFixed(2)}`;
+    return d + `L${N} ${MID}Z`;
+  };
+  const upPeak = halfPath(peaks, -1), loPeak = halfPath(peaks, 1);
+  const upRms = halfPath(rmss, -1), loRms = halfPath(rmss, 1);
+  return `<svg class="w-full h-full wave-bar" viewBox="0 0 ${N} 30" preserveAspectRatio="none" aria-hidden="true">` +
+    `<path d="${upPeak}" fill="${peakFill}"/><path d="${loPeak}" fill="${peakFill}"/>` +
+    `<path d="${upRms}" fill="${rmsFill}"/><path d="${loRms}" fill="${rmsFill}"/>` +
+    `<path d="${upPeak}" fill="none" stroke="${edge}" stroke-width="1" vector-effect="non-scaling-stroke"/>` +
+    `<path d="${loPeak}" fill="none" stroke="${edge}" stroke-width="1" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 // ================== Clip 手势：双击点位置剪切 / 长按删除 ==================
@@ -1043,6 +1060,9 @@ function startSilentKeeper() {
 })();
 async function decodeBlob(blob) {
   ensureAC();
+  // iOS Safari：suspended 状态的 ctx 上 decodeAudioData 会偶发直接 reject。
+  // 解码前先 resume（无手势时 resume 可能失败，但解码照常尝试——双层兜底）。
+  if (_ac && _ac.state !== 'running') { try { await _ac.resume(); } catch {} }
   const ab = await blob.arrayBuffer();
   return _ac.decodeAudioData(ab.slice(0));
 }
@@ -1981,6 +2001,20 @@ async function startPlayback(startSec) {
   }
   if (jobs.length) await Promise.all(jobs);
   if (gen !== playbackGen) return; // 解码期间已被停止
+  // 兜底补画波形：波形绘制的解码若早先失败过（iOS 偶发），此处 buffer 已就绪——
+  // 直接从播放用的 AudioBuffer 生成波形，不再二次解码。
+  for (const tr of tracks) {
+    const isBacking = tr.kind === 'backing';
+    for (const cl of tr.clips) {
+      if (cl._buffer && !cl._waveSVG) {
+        try {
+          cl._waveSVG = computeWaveSVG(cl._buffer, isBacking);
+          const live = document.querySelector(`[data-clip-id="${cl.id}"] .waveform-wrap`);
+          if (live) live.innerHTML = cl._waveSVG;
+        } catch {}
+      }
+    }
+  }
   for (const tr of tracks) {
     const audible = isTrackAudible(tr);
     tr.clips.forEach((cl) => {
@@ -2515,10 +2549,18 @@ document.getElementById('backing-file')?.addEventListener('change', async (e) =>
       if (loadFailed) return;
       loadFailed = true;
       clearTimeout(metaTimer);
-      project.tracks = project.tracks.filter((t) => t !== newTrack);
-      try { URL.revokeObjectURL(url); } catch {}
-      renderTracks();
-      window.MFToast(`无法播放「${f.name}」：浏览器不支持该格式`);
+      // 媒体元素放不了 ≠ 解不了：decodeAudioData 能解就保留这条轨
+      // （播放走 AudioBufferSource 路径，媒体元素只是降级通道）
+      getClipBuffer(clip).then((buf) => {
+        clip._buffer = buf; // getClipBuffer 内部已缓存，此处显式赋值防御重复
+        if (!clip.duration && isFinite(buf.duration) && buf.duration > 0) clip.duration = buf.duration;
+        renderTracks();
+      }).catch(() => {
+        project.tracks = project.tracks.filter((t) => t !== newTrack);
+        try { URL.revokeObjectURL(url); } catch {}
+        renderTracks();
+        window.MFToast(`无法播放「${f.name}」：浏览器不支持该格式`);
+      });
     };
     audio.addEventListener('error', failLoad);
     // 兜底超时：个别设备上既不触发 error 也不触发 loadedmetadata
@@ -2529,6 +2571,17 @@ document.getElementById('backing-file')?.addEventListener('change', async (e) =>
       clip.duration = (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : 30;
       renderTracks();
     });
+    // iOS Safari 根本不给 <audio> 预载（preload 被忽略，loadedmetadata 可能
+    // 永远不来）→ duration 一直是 0，clip 宽度为 0「导入后音轨是空的」。
+    // 对策：导入后立刻 decodeAudioData——时长、波形都从 AudioBuffer 拿，
+    // 媒体元素只剩降级播放一个职责。
+    getClipBuffer(clip).then((buf) => {
+      if (loadFailed) return; // 已按失败路径处理（decode 失败由 failLoad 收尾）
+      if (!clip.duration && isFinite(buf.duration) && buf.duration > 0) {
+        clip.duration = buf.duration;
+        renderTracks(); // 宽度就位；drawWaveform 复用已缓存的 _buffer 同步出波形
+      }
+    }).catch(() => { /* 解码失败：交给 error/metaTimer 兜底路径 */ });
     return newTrack;
   };
 

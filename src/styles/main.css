@@ -318,7 +318,8 @@
   }
   /* Clip 内部波形容器：禁止响应 pointer（让手势直接命中 clip 外层） */
   .waveform-wrap { pointer-events: none; }
-  .waveform-wrap .wave-bar { display: block; opacity: 0.85; }
+  /* 波形 SVG：峰值层/RMS 层透明度已内嵌在各自 fill 色里，整层不再打折 */
+  .waveform-wrap .wave-bar { display: block; }
 
   /* Beat pad / melody key press feedback */
   .beat-pad { aspect-ratio: 1 / 1; position: relative; overflow: hidden; }
@@ -1107,13 +1108,14 @@ input:focus, textarea:focus, select:focus {
 }
 
 /* ===== 轨道底边拖拽拉升 ===== */
-/* handle 悬在轨道底边：默认隐形，悬停/拖拽时显示红色抓条 */
+/* handle 悬在轨道底边（只覆盖编排区，不盖左侧通道条按钮）：
+   触屏没有 hover——抓条默认就可见（低透明度红条），悬停/拖拽时高亮。
+   命中区 18px：手机手指也容易命中（10px 太小基本点不到）。 */
 .track-resize-handle {
   position: absolute;
-  left: 0;
   right: 0;
   bottom: 0;
-  height: 10px;
+  height: 18px;
   cursor: row-resize;
   touch-action: none; /* 拖拽时禁止页面滚动抢手势 */
   z-index: 30;
@@ -1123,15 +1125,32 @@ input:focus, textarea:focus, select:focus {
   position: absolute;
   left: 20%;
   right: 20%;
-  bottom: 3px;
-  height: 2px;
-  border-radius: 2px;
-  background: transparent;
+  bottom: 7px;
+  height: 3px;
+  border-radius: 3px;
+  background: rgba(229, 62, 62, 0.34);
   transition: background 0.12s ease;
 }
 .track-resize-handle:hover::after,
 .track-resize-handle.dragging::after {
-  background: rgba(229, 62, 62, 0.65);
+  background: rgba(229, 62, 62, 0.85);
+}
+
+/* ===== Clip 波形可见性 ===== */
+/* 旧代码用 bg-secondary/border-secondary——主题根本没有 secondary 色，
+   Tailwind 静默不生成 → 背景透明 + 波形 #324155 深灰蓝画在近黑底上 ≈ 不可见。
+   这里用真实色值：录音轨红色系、伴奏轨暖灰系，波形条对比度 ≥ 5:1。 */
+.clip-record {
+  background: rgba(229, 62, 62, 0.22);
+  border-color: rgba(245, 101, 101, 0.5);
+}
+.clip-backing {
+  background: rgba(232, 220, 203, 0.09);
+  border-color: rgba(232, 220, 203, 0.34);
+}
+.track-icon-backing {
+  background-color: rgba(232, 220, 203, 0.14);
+  color: #d9cbb8;
 }
 
 /* 波形 SVG 尺寸兜底：不依赖 Tailwind 类加载时序，恒定铺满容器 */
