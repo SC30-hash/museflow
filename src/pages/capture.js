@@ -317,7 +317,43 @@ async function acquireMicStream() {
     // 个别老浏览器不认非基本约束：退回默认申请（行为与旧版一致）
     sharedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
   }
+  warnIfVoiceGradeMic(sharedMicStream);
   return sharedMicStream;
+}
+// ================== 录音链路体检 ==================
+// 应用内播放路径（伴奏/录音轨）在播放与录音状态下已完全一致（同一套
+// AudioBuffer + FX 链）。录音时仍听感发闷，剩下的元凶都在系统层，网页无法绕过：
+// 1) 蓝牙耳机：麦克风一开，系统把耳机从 A2DP（高音质立体声）切到 HFP 通话模式
+//    （约 16kHz 单声道）——iOS/安卓/Windows 通用行为，任何网页都躲不掉；
+// 2) iOS Safari：麦克风开启后输出可能被路由到听筒（WebKit 已知问题）；
+// 3) 内置浏览器（微信等 X5 内核）：无视 echoCancellation:false，语音处理照旧。
+// 能做的是检测出来并给出对症提示。麦克风音源采样率 ≤16kHz ≈ 通话级链路（HFP/语音模式）。
+let micGradeHintShown = false;
+function warnIfVoiceGradeMic(stream) {
+  if (micGradeHintShown) return;
+  const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
+  if (!tr) return;
+  let s = {};
+  try { s = tr.getSettings() || {}; } catch { return; }
+  const sr = Number(s.sampleRate) || 0;
+  if (sr > 0 && sr <= 16000) {
+    micGradeHintShown = true;
+    window.MFToast('检测到通话级音源（多为蓝牙耳机麦克风）：录音期间系统会把伴奏压成通话音质（发闷），这是系统行为，网页无法绕过。建议改戴有线耳机，或关掉蓝牙用手机扬声器+内置麦');
+    return;
+  }
+  if (s.echoCancellation === true) {
+    // 申请时明确关了 AEC，settings 里仍是 true → 浏览器忽略了音乐录音设置
+    micGradeHintShown = true;
+    window.MFToast('当前浏览器忽略了音乐录音设置（仍强制语音处理），录音时伴奏会被压窄。建议用最新版 Chrome / Safari 打开本页');
+    return;
+  }
+  // iOS 是检测盲区（getSettings 通常不报采样率，路由到听筒也无法感知）：
+  // 给一次性小贴士，帮用户自己排除蓝牙/听筒这两种系统级降质。
+  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  if (isIOS) {
+    micGradeHintShown = true;
+    window.MFToast('iPhone/iPad 录音小贴士：蓝牙耳机录音时系统会切到通话音质、外放可能走听筒，伴奏都会发闷。想原汁原味听伴奏，戴有线耳机最稳');
+  }
 }
 function releaseMicStream() {
   if (sharedMicStream) {
