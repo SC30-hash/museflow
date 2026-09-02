@@ -1683,15 +1683,17 @@ tracksBody.addEventListener('touchmove', (e) => {
 // 双击剪切已移除（和三次点击删除冲突，浏览器三次连点会触发 dblclick）。
 // splitClipAtOffset 函数保留备用，未来如需恢复剪切可重新挂 dblclick 监听器。
 
-// 轨道重命名：双击轨道名进入编辑，回车/失焦保存
-tracksBody.addEventListener('dblclick', (e) => {
-  const h3 = e.target.closest('.track-name');
-  if (!h3 || h3.isContentEditable) return;
+// 轨道重命名：双击/双击触摸 轨道名进入编辑，回车/失焦保存
+// 桌面用 dblclick；手机端 dblclick 不可靠，用 touchend 检测两次连续 tap
+let _lastTrackTapTime = 0;
+let _lastTrackTapTarget = null;
+
+function startRenameTrack(h3) {
+  if (h3.isContentEditable) return;
   const row = h3.closest('[data-track-id]');
   if (!row) return;
   const tr = project.tracks.find((t) => t.id === row.dataset.trackId);
   if (!tr) return;
-  e.preventDefault();
   h3.contentEditable = 'true';
   h3.classList.add('outline-none', 'ring-1', 'ring-primary/50', 'rounded', 'px-0.5', '-mx-0.5');
   h3.focus();
@@ -1722,7 +1724,31 @@ tracksBody.addEventListener('dblclick', (e) => {
     if (ev.key === 'Enter') { ev.preventDefault(); h3.blur(); }
     else if (ev.key === 'Escape') { h3.removeEventListener('blur', finish); h3.textContent = tr.name; h3.blur(); }
   });
+}
+
+// 桌面端：dblclick
+tracksBody.addEventListener('dblclick', (e) => {
+  const h3 = e.target.closest('.track-name');
+  if (!h3) return;
+  e.preventDefault();
+  startRenameTrack(h3);
 });
+
+// 手机端：检测两次连续 tap（间隔 < 400ms）模拟双击
+tracksBody.addEventListener('touchend', (e) => {
+  const h3 = e.target.closest('.track-name');
+  if (!h3 || h3.isContentEditable) return;
+  const now = Date.now();
+  if (_lastTrackTapTarget === h3 && (now - _lastTrackTapTime) < 400) {
+    e.preventDefault();
+    _lastTrackTapTime = 0;
+    _lastTrackTapTarget = null;
+    startRenameTrack(h3);
+  } else {
+    _lastTrackTapTime = now;
+    _lastTrackTapTarget = h3;
+  }
+}, { passive: false });
 
 // 通道条按钮（M / S / R / X）+ 三次点击删除 clip + 剪切模式 的 click 处理
 tracksBody.addEventListener('click', (e) => {
