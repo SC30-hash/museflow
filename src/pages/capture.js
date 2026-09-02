@@ -181,16 +181,23 @@ const ZOOM_MAX = 400;        // 最大：10 倍细节
 
 // ================== 音轨缩放 ==================
 // 时间标尺/秒线刻度步进随缩放自适应：目标标签间距 ≥ 64px、小刻度 ≥ 10px
+// 返回 { major, minor, k }：minor = major / k（k 为整数）。
+// 刻度迭代一律用整数计数（i * minor + i % k），杜绝浮点累加误差
+// （0.2 步进累加会算出 0.6000000000000001 之类的值直接印上标尺）。
 function timelineSteps() {
   const labelSteps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
   let major = labelSteps[labelSteps.length - 1];
   for (const s of labelSteps) {
     if (s * PX_PER_SEC >= 64) { major = s; break; }
   }
-  let minor = major / 5;
-  if (minor * PX_PER_SEC < 10) minor = major / 2;
-  if (minor * PX_PER_SEC < 10) minor = major;
-  return { major, minor };
+  let k = 5; // 每个 major 含几个 minor
+  if ((major / k) * PX_PER_SEC < 10) k = 2;
+  if ((major / k) * PX_PER_SEC < 10) k = 1;
+  return { major, minor: major / k, k };
+}
+// 刻度总数（整数）：+1e-6 容差防 30/0.2=149.99… 截尾少一格
+function tickCount(totalDur, minor) {
+  return Math.floor(totalDur / minor + 1e-6);
 }
 
 // 设置缩放（pxPerSec）并保持视觉锚点：anchorSec 时刻停留在 anchorX（视口内 px）不动
@@ -315,11 +322,12 @@ function extendArranger(newTotalDur) {
     if (!arr) return;
     arr.style.width = `${newTotalDur * PX_PER_SEC}px`;
     arr.querySelectorAll('.sec-line').forEach((l) => l.remove());
-    const { major, minor } = timelineSteps();
-    for (let s = minor; s <= newTotalDur; s += minor) {
+    const { minor, k } = timelineSteps();
+    const lineN = tickCount(newTotalDur, minor);
+    for (let i = 1; i <= lineN; i++) {
       const line = document.createElement('div');
-      line.className = `sec-line absolute top-0 bottom-0 border-l ${Math.abs(s % major) < 1e-9 ? 'border-border/80' : 'border-border/30'}`;
-      line.style.left = `${s * PX_PER_SEC}px`;
+      line.className = `sec-line absolute top-0 bottom-0 border-l ${i % k === 0 ? 'border-border/80' : 'border-border/30'}`;
+      line.style.left = `${i * minor * PX_PER_SEC}px`;
       arr.appendChild(line);
     }
   });
@@ -616,10 +624,16 @@ document.getElementById('transport-monitor')?.addEventListener('click', async ()
 // 的刻度容器（绝对定位 tick，步进随缩放自适应：label ≥64px、小刻度 ≥10px）
 function buildRulerTicks(host, totalDur) {
   host.innerHTML = '';
-  const { major, minor } = timelineSteps();
-  const fmtLabel = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`);
-  for (let s = 0; s <= totalDur; s += minor) {
-    const isMajor = Math.abs(s % major) < 1e-9;
+  const { minor, k } = timelineSteps();
+  // 标签格式化：toFixed(2) 去掉浮点尾差（0.6000000000000001 → 0.6）
+  const fmtLabel = (s) => {
+    if (s >= 60) return `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, '0')}`;
+    return `${Number(s.toFixed(2))}s`;
+  };
+  const n = tickCount(totalDur, minor);
+  for (let i = 0; i <= n; i++) {
+    const s = i * minor;
+    const isMajor = i % k === 0; // 整数取模判主刻度，浮点误差零可能
     const d = document.createElement('div');
     d.className = `ruler-tick absolute top-0 bottom-0 border-l ${isMajor ? 'ruler-major border-border' : 'border-border/40'}`;
     d.style.left = `${s * PX_PER_SEC}px`;
@@ -711,12 +725,13 @@ function renderTracks() {
     // 静音轨整行淡化，状态一眼可见
     arr.className = `relative h-[44px] bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
     arr.style.width = `${totalDur * PX_PER_SEC}px`;
-    // 垂直秒线（步进随缩放自适应：主刻度粗、次刻度细）
+    // 垂直秒线（步进随缩放自适应：主刻度粗、次刻度细；整数计数防浮点漂移）
     const steps = timelineSteps();
-    for (let s = steps.minor; s <= totalDur; s += steps.minor) {
+    const lineN = tickCount(totalDur, steps.minor);
+    for (let i = 1; i <= lineN; i++) {
       const line = document.createElement('div');
-      line.className = `sec-line absolute top-0 bottom-0 border-l ${Math.abs(s % steps.major) < 1e-9 ? 'border-border/80' : 'border-border/30'}`;
-      line.style.left = `${s * PX_PER_SEC}px`;
+      line.className = `sec-line absolute top-0 bottom-0 border-l ${i % steps.k === 0 ? 'border-border/80' : 'border-border/30'}`;
+      line.style.left = `${i * steps.minor * PX_PER_SEC}px`;
       arr.appendChild(line);
     }
     // 该轨所有 clips（绝对 px 定位）
