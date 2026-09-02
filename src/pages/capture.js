@@ -308,17 +308,54 @@ async function acquireMicStream() {
   // 系统把媒体输出整体压低（iOS 还会切到听筒）——录音时伴奏变小的元凶。
   // 另外这三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸），
   // 音乐录音要原始信号。代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
-  const musicMic = {
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-  };
+  const musicConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  let stream;
   try {
-    sharedMicStream = await navigator.mediaDevices.getUserMedia(musicMic);
+    stream = await navigator.mediaDevices.getUserMedia({ audio: musicConstraints });
   } catch {
     // 个别老浏览器不认非基本约束：退回默认申请（行为与旧版一致）
-    sharedMicStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   }
+  // ---- 通话级音源自动规避（录音轨不影响伴奏轨的关键一步）----
+  // 蓝牙耳麦的麦克风一打开，系统立刻把整条音频输出切成免提通话模式
+  // （约 16kHz），录音期间伴奏变成电话音质——这是系统行为，拦不住。
+  // 但换个思路：只要【不用】蓝牙麦、改用本机麦克风，系统就不需要免提模式，
+  // 伴奏输出保持原音质。检测到通话级音源且本机另有可用麦克风时自动换麦。
+  let settings = {};
+  try { settings = stream.getAudioTracks()[0]?.getSettings() || {}; } catch {}
+  const voiceGrade = Number(settings.sampleRate) > 0 && Number(settings.sampleRate) <= 16000;
+  if (voiceGrade) {
+    const altId = await findNonBluetoothMic(stream);
+    if (altId) {
+      try {
+        const alt = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: altId }, ...musicConstraints },
+        });
+        // 换麦成功：先停掉蓝牙麦（系统随之退出免提模式，输出恢复高音质），再接管
+        stream.getTracks().forEach((t) => t.stop());
+        stream = alt;
+        window.MFToast('已自动改用本机麦克风录音：蓝牙免提麦会把伴奏压成通话音质，换麦后伴奏保持原音质（人声从本机麦收录）');
+      } catch { /* 换麦失败：保留原音源，下面的体检会给出提示 */ }
+    }
+  }
+  sharedMicStream = stream;
   warnIfVoiceGradeMic(sharedMicStream);
   return sharedMicStream;
+}
+// 在设备列表里找一个非蓝牙麦克风（避开当前音源；标签带蓝牙/免提特征的不算）。
+// 拿到麦克风权限后标签才可见，本函数只在首次申请成功后调用。
+async function findNonBluetoothMic(currentStream) {
+  try {
+    const curId = currentStream?.getAudioTracks?.()[0]?.getSettings?.().deviceId || '';
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const btRe = /bluetooth|headset|hands[-\s]?free|HFP|免提|通话|蓝牙/i;
+    const cand = devs.find(
+      (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== curId && d.label && !btRe.test(d.label),
+    );
+    return cand ? cand.deviceId : null;
+  } catch {
+    return null;
+  }
 }
 // ================== 录音链路体检 ==================
 // 应用内播放路径（伴奏/录音轨）在播放与录音状态下已完全一致（同一套
@@ -338,7 +375,7 @@ function warnIfVoiceGradeMic(stream) {
   const sr = Number(s.sampleRate) || 0;
   if (sr > 0 && sr <= 16000) {
     micGradeHintShown = true;
-    window.MFToast('检测到通话级音源（多为蓝牙耳机麦克风）：录音期间系统会把伴奏压成通话音质（发闷），这是系统行为，网页无法绕过。建议改戴有线耳机，或关掉蓝牙用手机扬声器+内置麦');
+    window.MFToast('检测到通话级音源（多为蓝牙耳机麦克风），且本机没有其他可用麦克风：录音期间系统会把伴奏压成通话音质（发闷）。建议改戴有线耳机，或关闭蓝牙后用手机扬声器+内置麦录音');
     return;
   }
   if (s.echoCancellation === true) {
@@ -547,7 +584,7 @@ async function drawWaveform(containerEl, clip, isBacking) {
     <line x1="0" y1="15" x2="100" y2="15" stroke="currentColor" stroke-opacity=".2" stroke-width="1"/>
   </svg>`;
   try {
-    if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+    ensureAC(); // 统一 48kHz 入口（旧代码在此处直接 new，可能被锁低采样率）
     // 如果还没解码过 blob 成 AudioBuffer：解码 + 缓存波形（buffer 也缓存，播放复用）
     if (!clip._waveSVG) {
       const buf = await getClipBuffer(clip);
@@ -638,8 +675,36 @@ function audioBufferToWav(buffer) {
   return new Blob([ab], { type: 'audio/wav' });
 }
 let _ac = null;
+// 音频引擎统一入口：采样率强制 48kHz。
+// 根因：AudioContext.sampleRate 在创建瞬间永久定格。若引擎恰好在麦克风开启/
+// 蓝牙免提生效期间才第一次创建（时序竞态），会被系统锁在 16kHz 通话级——
+// 之后整个页面会话里伴奏与录音回放全部是电话音质，即使录音早已结束。
+// 锁定 48kHz 后，系统切换只影响当下输出，录音一停立即恢复满血，
+// 引擎本身永不被拉低——「录音轨不影响伴奏轨」的引擎级保证。
+function ensureAC() {
+  if (!_ac) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    try {
+      _ac = new AC({ sampleRate: 48000 });
+    } catch {
+      _ac = new AC(); // 极老浏览器不认 options：退回默认采样率
+    }
+  }
+  return _ac;
+}
+// 首次用户手势即预热引擎：手势内创建的 context 可立即出声，
+// 且保证引擎在任何录音开始之前就已按 48kHz 就位（不给时序竞态任何机会）
+(function bootEngineOnGesture() {
+  const boot = () => {
+    const c = ensureAC();
+    if (c && c.state === 'suspended') c.resume().catch(() => {});
+  };
+  document.addEventListener('pointerdown', boot, { once: true, capture: true });
+  document.addEventListener('keydown', boot, { once: true, capture: true });
+})();
 async function decodeBlob(blob) {
-  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  ensureAC();
   const ab = await blob.arrayBuffer();
   return _ac.decodeAudioData(ab.slice(0));
 }
@@ -655,7 +720,7 @@ let masterGain = null;
 let reverbBusIn = null;
 function ensureLiveGraph() {
   try {
-    if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+    if (!ensureAC()) return false; // 统一 48kHz 入口（旧代码在此处直接 new，可能被锁低采样率）
     if (_ac.state === 'suspended') _ac.resume().catch(() => {});
     if (!masterGain) {
       masterGain = _ac.createGain();
@@ -875,7 +940,7 @@ function showExportMenu(item, anchorEl) {
 }
 async function trimBlob(blob, startSec, endSec) {
   if (startSec >= endSec) return null;
-  if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
+  ensureAC(); // 统一 48kHz 入口（旧代码在此处直接 new，可能被锁低采样率）
   const ab = await blob.arrayBuffer();
   const decoded = await _ac.decodeAudioData(ab.slice(0));
   const sr = decoded.sampleRate;
