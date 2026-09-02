@@ -512,10 +512,9 @@ async function drawWaveform(containerEl, clip, isBacking) {
   </svg>`;
   try {
     if (!_ac) _ac = new (window.AudioContext || window.webkitAudioContext)();
-    // 如果还没解码过 blob 成 AudioBuffer：解码 + 缓存波形
+    // 如果还没解码过 blob 成 AudioBuffer：解码 + 缓存波形（buffer 也缓存，播放复用）
     if (!clip._waveSVG) {
-      const ab = await clip.blob.arrayBuffer();
-      const buf = await _ac.decodeAudioData(ab.slice(0));
+      const buf = await getClipBuffer(clip);
       clip._waveSVG = computeWaveSVG(buf, isBacking);
     }
     if (containerEl.isConnected) {
@@ -608,6 +607,12 @@ async function decodeBlob(blob) {
   const ab = await blob.arrayBuffer();
   return _ac.decodeAudioData(ab.slice(0));
 }
+// clip 级解码缓存：波形绘制 / live 播放 / 导出共用同一个 AudioBuffer，
+// 每个文件只解码一次（decodeAudioData 是全量解码，最贵的一步）。
+async function getClipBuffer(cl) {
+  if (!cl._buffer) cl._buffer = await decodeBlob(cl.blob);
+  return cl._buffer;
+}
 // ---- 混音音频图（live 播放用）：master 增益 + 共享混响总线 ----
 // 每轨一条 FX 链（EQ/压缩/混响 send），挂在 track._liveChain 上惰性创建/复用
 let masterGain = null;
@@ -665,9 +670,9 @@ function syncTrackGains() {
       tr._trackGain.gain.value = audible ? 1 : 0;
     }
   });
-  // 图建不起来时元素直连播放（不经闸门），用元素 muted 兜底；经图的元素双保险无害
+  // 元素降级路径（无 FX 图直连播放）用元素 muted 兜底；bufferSource 路径由上面的闸门管
   activePlaybacks.forEach((p) => {
-    if (!p.track) return;
+    if (!p.track || !p.audio) return;
     try { p.audio.muted = !isTrackAudible(p.track); } catch {}
   });
 }
@@ -688,7 +693,9 @@ async function mixProjectToBuffer(tracks, options = {}) {
     for (const c of (tr.clips || [])) {
       if (!c.blobDataURL && !c.blob) continue;
       const blob = c.blobDataURL ? await dataURLToBlob(c.blobDataURL) : c.blob;
-      const buf = await decodeBlob(blob);
+      // 复用 clip 级解码缓存（波形/live 播放时多半已解码过，导出免二次解码）
+      if (!c._buffer) c._buffer = await decodeBlob(blob);
+      const buf = c._buffer;
       // 旁通的轨按默认参数渲染（等效干声直通），与 live 软旁通行为一致；声像保留
       allClips.push({ buf, startTime: c.startTime || 0, fx: tr.bypass ? { ...defaultFx(), pan: trackFx(tr).pan } : trackFx(tr) });
     }
@@ -1505,7 +1512,11 @@ let playbackGen = 0; // 停止代数：异步建链期间若用户又停了，�
 function stopAllPlaybacks() {
   playbackGen++;
   activePlaybacks.forEach((p) => {
-    try { p.audio.pause(); } catch {}
+    if (p.src) { // AudioBufferSource：停掉并断线
+      try { p.src.stop(); } catch {}
+      try { p.src.disconnect(); } catch {}
+    }
+    if (p.audio) { try { p.audio.pause(); } catch {} } // 元素降级路径
   });
   activePlaybacks = [];
 }
@@ -1521,31 +1532,58 @@ async function startPlayback(startSec) {
   // 先建好全部 FX 链（含自动音准 worklet 装载），再统一开播，避免各轨延迟不一致
   await Promise.all(tracks.map((tr) => getLiveChain(tr).catch(() => null)));
   if (gen !== playbackGen) return; // 等待期间已被停止
+  // 收集本批要播的 clip，并行预解码（波形绘制时多半已缓存，这里通常瞬间完成）
+  const jobs = [];
+  for (const tr of tracks) {
+    for (const cl of tr.clips) {
+      if (cl.startTime + cl.duration <= nowSec) continue;
+      if (!cl._buffer) jobs.push(getClipBuffer(cl).catch(() => { cl._buffer = null; }));
+    }
+  }
+  if (jobs.length) await Promise.all(jobs);
+  if (gen !== playbackGen) return; // 解码期间已被停止
   for (const tr of tracks) {
     const audible = isTrackAudible(tr);
     tr.clips.forEach((cl) => {
       const end = cl.startTime + cl.duration;
       if (end <= nowSec) return;
       const offset = Math.max(0, nowSec - cl.startTime);
-      const a = new Audio(cl.url);
-      a.preload = 'auto';
-      try { a.currentTime = offset; } catch {}
-      a.muted = !audible; // 静音轨元素照常跑（哑的），播放中取消静音立即出声
-      // 挂上该轨 FX 链（EQ/自动音准/压缩/混响），输入先进轨道闸门；
-      // 图建不起来时退回直连播放（无 FX，靠元素自身 muted 静音）
-      const chain = tr._liveChain || null;
-      if (chain && tr._trackGain) {
-        try { _ac.createMediaElementSource(a).connect(tr._trackGain); } catch {}
+      if (cl._buffer && (tr._trackGain || masterGain)) {
+        // 首选：AudioBufferSourceNode 精准开播（采样级 offset，启动零延迟）。
+        // 不用 <audio>+MediaElementSource 的原因：
+        // 1) iOS Safari 的 MediaElementSource 会把立体声下混成单声道（老 bug），
+        //    伴奏声场塌、side 信号丢失，听感明显"变闷/不对"；
+        // 2) 元素 currentTime seek 不精准（webm 尤甚），录歌对位会漂。
+        // 与导出（mixProjectToBuffer）同一条 AudioBuffer 路径——所听即所得。
+        const src = _ac.createBufferSource();
+        src.buffer = cl._buffer;
+        src.connect(tr._trackGain || masterGain);
+        src.start(0, offset, Math.max(0, cl._buffer.duration - offset));
+        const pb = { src, clip: cl, track: tr, startedAt: performance.now(), playheadAtStart: nowSec };
+        activePlaybacks.push(pb);
+        src.addEventListener('ended', () => {
+          activePlaybacks = activePlaybacks.filter((p) => p !== pb);
+        });
+      } else {
+        // 降级：该格式 decodeAudioData 解不了（极少数），退回 <audio> 元素直连（旧版行为）
+        const a = new Audio(cl.url);
+        a.preload = 'auto';
+        try { a.currentTime = offset; } catch {}
+        a.muted = !audible; // 静音轨元素照常跑（哑的），播放中取消静音立即出声
+        const chain = tr._liveChain || null;
+        if (chain && tr._trackGain) {
+          try { _ac.createMediaElementSource(a).connect(tr._trackGain); } catch {}
+        }
+        const pb = { audio: a, clip: cl, track: tr, startedAt: performance.now(), playheadAtStart: nowSec };
+        activePlaybacks.push(pb);
+        a.play().catch(() => {});
+        a.addEventListener('ended', () => {
+          activePlaybacks = activePlaybacks.filter((p) => p !== pb);
+        });
       }
-      const pb = { audio: a, clip: cl, track: tr, startedAt: performance.now(), playheadAtStart: nowSec };
-      activePlaybacks.push(pb);
-      a.play().catch(() => {});
-      a.addEventListener('ended', () => {
-        activePlaybacks = activePlaybacks.filter((p) => p !== pb);
-      });
     });
   }
-  syncTrackGains(); // 闸门状态与元素 muted 对齐（防建链期间状态变化）
+  syncTrackGains(); // 闸门状态对齐（防建链期间状态变化）
 }
 
 // ================== 时间轴点击 seek ==================
@@ -1740,6 +1778,13 @@ async function transportRec() {
   }
   const armedTracks = project.tracks.filter((t) => t.kind === 'record' && t.armed);
   // (armedTracks 此时至少有一条)
+  // 预解码伴奏（与麦克风权限申请并行跑）：bufferSource 开播是同步零延迟的，
+  // 前提是 buffer 已就绪。预热保证按下录音键那一刻伴奏准时起播（对位不漂）。
+  const warmup = Promise.all(
+    project.tracks.flatMap((tr) => tr.clips)
+      .filter((cl) => cl.blob && !cl._buffer)
+      .map((cl) => getClipBuffer(cl).catch(() => { cl._buffer = null; }))
+  );
   try {
     await acquireMicStream();
   } catch (err) {
@@ -1749,6 +1794,7 @@ async function transportRec() {
     renderTracks();
     return;
   }
+  await warmup; // 等预热收尾（通常已与权限申请重叠完成，几乎不额外等待）
   // UI: 重新渲染把 R 亮的状态展示出来（用户能看见哪些轨在录）
   renderTracks();
   // 监听开启时：按当前 Arm 的轨重新接入（Arm 可能在开监听后换过）。
@@ -2190,12 +2236,15 @@ function captureCardCheckbox(checked, id) {
     </label>`;
 }
 
-const projectPlayers = new Map(); // id -> { audios:[], chains:[], playing }
+const projectPlayers = new Map(); // id -> { node, buffer, playing }
+const renderingProjects = new Set(); // 正在离线渲染试听的工程 id（防并发渲染）
 function releaseProjectPlayer(id) {
   const p = projectPlayers.get(id);
   if (!p) return;
-  (p.audios || []).forEach((a) => { try { a.pause(); } catch {} });
-  (p.chains || []).forEach((c) => { try { c.dispose(); } catch {} });
+  if (p.node) {
+    try { p.node.stop(); } catch {}
+    try { p.node.disconnect(); } catch {}
+  }
   projectPlayers.delete(id);
 }
 let currentlyPlaying = null; // legacy single-audio
@@ -2472,66 +2521,46 @@ listEl?.addEventListener('click', async (e) => {
     const existing = projectPlayers.get(id);
     if (existing) {
       if (existing.playing) {
-        existing.audios.forEach((a) => a.pause());
+        try { existing.node.stop(); } catch {}
         existing.playing = false;
       } else {
-        existing.audios.forEach((a) => { try { a.currentTime = 0; a.play(); } catch {} });
+        // 暂停后重播：bufferSource 停了不能复用，用渲染缓存重建一个从头播
+        const node = _ac.createBufferSource();
+        node.buffer = existing.buffer;
+        node.connect(masterGain || _ac.destination);
+        node.addEventListener('ended', () => { releaseProjectPlayer(id); renderList(); });
+        node.start();
+        existing.node = node;
         existing.playing = true;
       }
       renderList();
       return;
     }
-    // restore from base64
-    const audios = [];
-    const chains = []; // 每轨一条 FX 链（EQ/压缩/混响），播放结束统一释放
+    // 工程试听：先离线渲染成单个 AudioBuffer（与导出同一条链、同一套 FX），
+    // 再用一个 bufferSource 播放。
+    // 旧实现 <audio>+MediaElementSource 逐 clip 调度的问题：
+    // 1) iOS 的 MediaElementSource 把立体声下混成单声道，伴奏声场塌；
+    // 2) setTimeout 调度漂移，各轨起播不齐。
     const tracks = item.project?.tracks || [];
-    // 简单规则：所有 clips startTime=0 都一起从头播；按 clip.startTime 调度（setTimeout 相对偏移）
-    const anySolo = tracks.some((t) => t.solo);
+    if (renderingProjects.has(id)) return; // 渲染中重复点击：忽略，防止并发渲染两遍
+    renderingProjects.add(id);
     try {
-      const graphOk = ensureLiveGraph();
-      if (graphOk) await loadAutotune(_ac).catch(() => {});
-      for (const tr of tracks) {
-        if (tr.muted) continue;
-        if (anySolo && !tr.solo) continue;
-        let chain = null;
-        if (graphOk) {
-          try {
-            chain = createFxChain(_ac, trackFx(tr), reverbBusIn, masterGain);
-            chain.setBypass(!!tr.bypass);
-            chains.push(chain);
-          } catch {}
-        }
-        for (const c of (tr.clips || [])) {
-          const a = new Audio(URL.createObjectURL(await dataURLToBlob(c.blobDataURL)));
-          if (chain) {
-            try { _ac.createMediaElementSource(a).connect(chain.input); } catch {}
-          }
-          const delayMs = (c.startTime || 0) * 1000;
-          if (delayMs > 0) {
-            setTimeout(() => a.play().catch(() => {}), delayMs);
-          } else {
-            a.play().catch(() => {});
-          }
-          audios.push(a);
-        }
-      }
-      const checkEnded = () => {
-        const allDone = audios.every((a) => a.ended || a.paused);
-        if (allDone) {
-          releaseProjectPlayer(id);
-          renderList();
-        }
-      };
-      audios.forEach((a) => {
-        a.addEventListener('ended', checkEnded);
-        a.addEventListener('pause', checkEnded);
-      });
-      projectPlayers.set(id, { audios, chains, playing: true });
+      if (!ensureLiveGraph()) throw new Error('无法创建音频图');
+      window.MFToast('工程渲染中…');
+      const rendered = await mixProjectToBuffer(tracks);
+      if (!rendered) { window.MFToast('该工程没有可播放的内容'); return; }
+      const node = _ac.createBufferSource();
+      node.buffer = rendered;
+      node.connect(masterGain || _ac.destination);
+      node.addEventListener('ended', () => { releaseProjectPlayer(id); renderList(); });
+      node.start();
+      projectPlayers.set(id, { node, buffer: rendered, playing: true });
       renderList();
     } catch (err) {
       console.error(err);
-      chains.forEach((c) => { try { c.dispose(); } catch {} });
       window.MFToast('工程回放失败');
+    } finally {
+      renderingProjects.delete(id);
     }
     return;
   }
