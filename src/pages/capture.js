@@ -173,8 +173,109 @@ window.MFToast = (msg) => {
 };
 
 // ================== Helpers ==================
-const PX_PER_SEC = 40;        // arranger 区 40px = 1 秒
+let PX_PER_SEC = 40;         // arranger 水平缩放（px/秒），可变：音轨缩放功能
 const CHANNEL_PX = 140;
+const ZOOM_HOME = 40;        // 默认缩放（100%）
+const ZOOM_MIN = 4;          // 最小：整首歌一屏看全
+const ZOOM_MAX = 400;        // 最大：10 倍细节
+
+// ================== 音轨缩放 ==================
+// 时间标尺/秒线刻度步进随缩放自适应：目标标签间距 ≥ 64px、小刻度 ≥ 10px
+function timelineSteps() {
+  const labelSteps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+  let major = labelSteps[labelSteps.length - 1];
+  for (const s of labelSteps) {
+    if (s * PX_PER_SEC >= 64) { major = s; break; }
+  }
+  let minor = major / 5;
+  if (minor * PX_PER_SEC < 10) minor = major / 2;
+  if (minor * PX_PER_SEC < 10) minor = major;
+  return { major, minor };
+}
+
+// 设置缩放（pxPerSec）并保持视觉锚点：anchorSec 时刻停留在 anchorX（视口内 px）不动
+function setZoom(targetPps, anchorSec, anchorX) {
+  const next = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, targetPps));
+  if (Math.abs(next - PX_PER_SEC) < 0.01) { syncZoomUI(); return; }
+  const vp = document.getElementById('arranger-viewport');
+  // 默认锚点：视口中心对应的时间
+  if (typeof anchorSec !== 'number') {
+    anchorSec = 0;
+    if (vp) anchorSec = Math.max(0, (vp.scrollLeft + vp.clientWidth / 2 - CHANNEL_PX) / PX_PER_SEC);
+    anchorX = vp ? vp.clientWidth / 2 : 0;
+  }
+  PX_PER_SEC = next;
+  renderTracks(); // 全量重绘（波形 SVG viewBox 自适应，无需重算）
+  // 播放头按新缩放重新定位（renderTracks 不管 playhead）
+  if (playheadEl) playheadEl.style.left = `${CHANNEL_PX + currentSeconds() * PX_PER_SEC}px`;
+  // 重绘后恢复锚点位置
+  if (vp) {
+    vp.scrollLeft = Math.max(0, CHANNEL_PX + anchorSec * PX_PER_SEC - anchorX);
+    if (window._updateArrangerSlider) window._updateArrangerSlider();
+  }
+  syncZoomUI();
+}
+function zoomBy(factor, anchorSec, anchorX) {
+  setZoom(PX_PER_SEC * factor, anchorSec, anchorX);
+}
+// 缩放到整个工程恰好铺满视口
+function zoomFit() {
+  const vp = document.getElementById('arranger-viewport');
+  const totalDur = getTotalDuration();
+  if (!vp || totalDur <= 0) return setZoom(ZOOM_HOME);
+  setZoom((vp.clientWidth - CHANNEL_PX - 8) / totalDur);
+}
+function zoomHome() { setZoom(ZOOM_HOME); }
+function syncZoomUI() {
+  const label = document.getElementById('zoom-level-label');
+  if (label) label.textContent = `${Math.round((PX_PER_SEC / ZOOM_HOME) * 100)}%`;
+}
+
+// 键盘：+/- 缩放（DAW 惯例），0 复位
+document.addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, select')) return;
+  if (e.key === '+' || e.key === '=') zoomBy(1.25);
+  else if (e.key === '-' || e.key === '_') zoomBy(0.8);
+  else if (e.key === '0') zoomHome();
+});
+
+// Ctrl/Cmd + 滚轮：以光标为锚点缩放（桌面 DAW 标准操作）
+document.getElementById('arranger-viewport')?.addEventListener('wheel', (e) => {
+  if (!e.ctrlKey && !e.metaKey) return;
+  e.preventDefault();
+  const vp = document.getElementById('arranger-viewport');
+  const rect = vp.getBoundingClientRect();
+  const anchorX = e.clientX - rect.left;
+  const anchorSec = Math.max(0, (vp.scrollLeft + anchorX - CHANNEL_PX) / PX_PER_SEC);
+  zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, anchorSec, anchorX);
+}, { passive: false });
+
+// 双指捏合缩放（触屏）：viewport 元数据已禁用页面缩放，此处接管
+(function setupPinchZoom() {
+  const vp = document.getElementById('arranger-viewport');
+  if (!vp) return;
+  let pinch = null; // { d0, pps0 }
+  vp.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 2) return;
+    const [a, b] = e.touches;
+    pinch = {
+      d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1,
+      pps0: PX_PER_SEC,
+    };
+  }, { passive: true });
+  vp.addEventListener('touchmove', (e) => {
+    if (!pinch || e.touches.length !== 2) return;
+    e.preventDefault();
+    const [a, b] = e.touches;
+    const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+    const rect = vp.getBoundingClientRect();
+    // 锚点基于当前视图状态（每次 move 重新锚定，连续缩放不漂移）
+    const anchorX = (a.clientX + b.clientX) / 2 - rect.left;
+    const anchorSec = Math.max(0, (vp.scrollLeft + anchorX - CHANNEL_PX) / PX_PER_SEC);
+    setZoom(pinch.pps0 * (d / pinch.d0), anchorSec, anchorX);
+  }, { passive: false });
+  vp.addEventListener('touchend', () => { pinch = null; }, { passive: true });
+})();
 
 // 动态计算时间轴总时长：所有 clip 最大值 + 缓冲，最少 30s
 // 录音中：clip 还未加入数组，需用 currentSeconds() 兜底，保证时间轴随录音长度扩展
@@ -200,31 +301,24 @@ function getTotalDuration() {
 function extendArranger(newTotalDur) {
   const content = document.getElementById('arranger-content');
   if (content) content.style.width = `${CHANNEL_PX + newTotalDur * PX_PER_SEC}px`;
-  // 标尺：追加新 tick（保留第一个 TRACKS 标签单元）
+  // 标尺：自适应刻度重建（每秒最多一次，代价可忽略）
   const ruler = document.getElementById('time-ruler');
-  if (ruler) {
-    const currentTicks = ruler.children.length - 1;
-    if (currentTicks < newTotalDur) {
-      for (let i = currentTicks; i < newTotalDur; i++) {
-        const d = document.createElement('div');
-        d.className = 'text-[10px] text-muted-foreground py-1 text-center font-mono tabular-nums border-l border-border/60';
-        d.textContent = i % 5 === 0 ? String(i) + 's' : '·';
-        ruler.appendChild(d);
-      }
-      ruler.style.gridTemplateColumns = `${CHANNEL_PX}px repeat(${newTotalDur}, ${PX_PER_SEC}px)`;
-    }
+  const ticks = ruler && ruler.querySelector('.ruler-ticks');
+  if (ticks) {
+    ticks.style.width = `${newTotalDur * PX_PER_SEC}px`;
+    buildRulerTicks(ticks, newTotalDur);
   }
-  // 所有轨道行：更新宽度 + 追加秒线
+  // 所有轨道行：更新宽度 + 重建自适应秒线
   document.querySelectorAll('#tracks-body > div').forEach((row) => {
     row.style.gridTemplateColumns = `${CHANNEL_PX}px ${newTotalDur * PX_PER_SEC}px`;
     const arr = row.children[1];
     if (!arr) return;
     arr.style.width = `${newTotalDur * PX_PER_SEC}px`;
-    const existing = arr.querySelectorAll('.sec-line');
-    const currentCount = existing.length;
-    for (let s = currentCount + 1; s <= newTotalDur; s++) {
+    arr.querySelectorAll('.sec-line').forEach((l) => l.remove());
+    const { major, minor } = timelineSteps();
+    for (let s = minor; s <= newTotalDur; s += minor) {
       const line = document.createElement('div');
-      line.className = `sec-line absolute top-0 bottom-0 border-l ${s % 5 === 0 ? 'border-border/80' : 'border-border/30'}`;
+      line.className = `sec-line absolute top-0 bottom-0 border-l ${Math.abs(s % major) < 1e-9 ? 'border-border/80' : 'border-border/30'}`;
       line.style.left = `${s * PX_PER_SEC}px`;
       arr.appendChild(line);
     }
@@ -518,20 +612,40 @@ document.getElementById('transport-monitor')?.addEventListener('click', async ()
 });
 
 // ================== Ruler ==================
+// 标尺结构：第 1 个子格 = CHANNEL_PX 宽的 TRACKS 标签；第 2 个子格 = 相对定位
+// 的刻度容器（绝对定位 tick，步进随缩放自适应：label ≥64px、小刻度 ≥10px）
+function buildRulerTicks(host, totalDur) {
+  host.innerHTML = '';
+  const { major, minor } = timelineSteps();
+  const fmtLabel = (s) => (s >= 60 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : `${s}s`);
+  for (let s = 0; s <= totalDur; s += minor) {
+    const isMajor = Math.abs(s % major) < 1e-9;
+    const d = document.createElement('div');
+    d.className = `ruler-tick absolute top-0 bottom-0 border-l ${isMajor ? 'ruler-major border-border' : 'border-border/40'}`;
+    d.style.left = `${s * PX_PER_SEC}px`;
+    if (isMajor) {
+      const lab = document.createElement('span');
+      lab.className = 'absolute top-0.5 left-1 text-[10px] text-muted-foreground font-mono tabular-nums pointer-events-none';
+      lab.textContent = fmtLabel(s);
+      d.appendChild(lab);
+    }
+    host.appendChild(d);
+  }
+}
 function drawRuler() {
   const el = document.getElementById('time-ruler');
   const totalDur = getTotalDuration();
-  // 清除旧 tick（保留第一个 TRACKS 标签单元）
-  while (el.children.length > 1) el.removeChild(el.lastChild);
-  // 每秒一个 tick
-  for (let i = 0; i < totalDur; i++) {
-    const d = document.createElement('div');
-    d.className = 'text-[10px] text-muted-foreground py-1 text-center font-mono tabular-nums border-l border-border/60';
-    d.textContent = i % 5 === 0 ? String(i) + 's' : '·';
-    el.appendChild(d);
+  // 结构固定：第 1 格 TRACKS 标签 + 第 2 格刻度容器（首次构建，之后只填刻度）
+  let ticks = el.querySelector('.ruler-ticks');
+  if (!ticks) {
+    el.innerHTML = '<div class="text-[10px] text-muted-foreground px-2 flex items-center border-r border-border/60">TRACKS</div>'
+      + '<div class="relative" style="height:22px;"></div>';
+    ticks = el.children[1];
+    ticks.classList.add('ruler-ticks');
   }
-  // 通道条列 + 每秒固定像素列
-  el.style.gridTemplateColumns = `${CHANNEL_PX}px repeat(${totalDur}, ${PX_PER_SEC}px)`;
+  el.style.gridTemplateColumns = `${CHANNEL_PX}px 1fr`;
+  ticks.style.width = `${totalDur * PX_PER_SEC}px`;
+  buildRulerTicks(ticks, totalDur);
   // 设置内容层总宽度
   const content = document.getElementById('arranger-content');
   if (content) {
@@ -597,10 +711,11 @@ function renderTracks() {
     // 静音轨整行淡化，状态一眼可见
     arr.className = `relative h-[44px] bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
     arr.style.width = `${totalDur * PX_PER_SEC}px`;
-    // 垂直秒线（每 5 秒粗线）
-    for (let s = 1; s <= totalDur; s++) {
+    // 垂直秒线（步进随缩放自适应：主刻度粗、次刻度细）
+    const steps = timelineSteps();
+    for (let s = steps.minor; s <= totalDur; s += steps.minor) {
       const line = document.createElement('div');
-      line.className = `sec-line absolute top-0 bottom-0 border-l ${s % 5 === 0 ? 'border-border/80' : 'border-border/30'}`;
+      line.className = `sec-line absolute top-0 bottom-0 border-l ${Math.abs(s % steps.major) < 1e-9 ? 'border-border/80' : 'border-border/30'}`;
       line.style.left = `${s * PX_PER_SEC}px`;
       arr.appendChild(line);
     }
@@ -3003,6 +3118,12 @@ window.addEventListener('storeready', () => {
 });
 
 // ================== Arranger 滑块同步 ==================
+// 缩放控件：+/- 按钮、双击百分比复位、一键适配整个工程
+document.getElementById('zoom-in-btn')?.addEventListener('click', () => zoomBy(1.25));
+document.getElementById('zoom-out-btn')?.addEventListener('click', () => zoomBy(0.8));
+document.getElementById('zoom-fit-btn')?.addEventListener('click', zoomFit);
+document.getElementById('zoom-level-label')?.addEventListener('dblclick', zoomHome);
+syncZoomUI();
 function setupArrangerSlider() {
   const viewport = document.getElementById('arranger-viewport');
   const slider = document.getElementById('arranger-slider');

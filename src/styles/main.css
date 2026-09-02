@@ -1093,10 +1093,16 @@ input:focus, textarea:focus, select:focus {
   background: linear-gradient(90deg, rgba(229, 62, 62, 0.06), transparent 60%);
 }
 
-/* 时间标尺 — 强化主刻度 */
-#time-ruler > div:nth-child(4n+1) {
+/* 时间标尺 — 主刻度（步进随缩放自适应） */
+#time-ruler .ruler-major {
   border-left: 1px solid rgba(229, 62, 62, 0.45) !important;
-  color: var(--museflow-foreground) !important;
+}
+#time-ruler .ruler-major span {
+  color: var(--museflow-foreground);
+}
+/* 缩放控件 — 防误触（捏合缩放时底部按钮不抢手势） */
+#zoom-controls button {
+  touch-action: manipulation;
 }
 
 /* 捕捉卡片 hover — 微抬起，桌面端 */
