@@ -880,11 +880,11 @@ function computeWaveSVG(buf, isBacking) {
   const N = Math.max(1, Math.min(2000, Math.max(1000, Math.ceil((buf.duration || 1) * 40)), buf.length));
   const chCount = Math.min(buf.numberOfChannels, 2);
   const samplesPerSeg = Math.max(1, Math.floor(buf.length / N));
-  // 配色：伴奏暖浅灰系、录音红系；峰值层更透（0.28/0.30）让两层呼吸感分明，
-  // RMS 层实心做「芯」，包络边缘亮线勾轮廓
-  const peakFill = isBacking ? 'rgba(217,203,184,0.28)' : 'rgba(245,101,101,0.30)';
-  const rmsFill = isBacking ? 'rgba(235,224,208,0.95)' : 'rgba(252,129,129,0.95)';
-  const edge = isBacking ? 'rgba(232,220,203,0.8)' : 'rgba(252,129,129,0.9)';
+  // 配色：统一品牌红系。峰值层半透明红纱、RMS 层实心红芯、边缘亮红勾线，
+  // 深色底上对比度高；伴奏/录音波形同色（轨道身份由左侧通道条图标区分）
+  const peakFill = 'rgba(245,101,101,0.30)';
+  const rmsFill = 'rgba(232,72,72,0.95)';
+  const edge = 'rgba(255,138,138,0.9)';
   const peaks = new Float32Array(N);
   const rmss = new Float32Array(N);
   for (let i = 0; i < N; i++) {
