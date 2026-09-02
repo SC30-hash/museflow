@@ -41,15 +41,15 @@
       </header>
 
       <!-- =================== View: 灵感 (capture) =================== -->
-      <main class="page-main px-4 py-5 space-y-5" data-view="capture">
+      <main class="page-main px-4 py-5 flex flex-col gap-4 overflow-hidden" data-view="capture" style="height: calc(100dvh - var(--museflow-safe-top) - 73px);">
         <!-- Mode toggle -->
-        <div class="p-1 bg-muted rounded-xl flex gap-1" id="mode-toggle">
+        <div class="p-1 bg-muted rounded-xl flex gap-1 shrink-0" id="mode-toggle">
           <button type="button" data-mode="rec" class="flex-1 py-2 text-sm font-medium rounded-lg bg-primary/15 text-primary shadow-sm" aria-pressed="true">录音</button>
           <button type="button" data-mode="text" class="flex-1 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-foreground transition-colors duration-150" aria-pressed="false">文字</button>
         </div>
 
         <!-- Record card -->
-        <section id="record-panel" class="bg-card border border-border rounded-2xl p-2.5 flex flex-col gap-2.5 shadow-sm">
+        <section id="record-panel" class="bg-card border border-border rounded-2xl p-2.5 flex flex-col gap-2.5 shadow-sm min-h-0" style="flex: 6 1 0%;">
           <!-- Row 1: tools (left) + save (right) -->
           <div class="flex items-center gap-1.5">
             <button type="button" id="import-backing-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="导入伴奏">
@@ -62,7 +62,7 @@
               <i data-lucide="scissors" class="w-3.5 h-3.5"></i><span>剪切</span>
             </button>
             <div class="flex-1 min-w-0"></div>
-            <button type="button" id="save-project-btn" class="px-2.5 py-1.5 rounded-lg border border-primary/40 text-primary text-xs font-medium flex items-center gap-1.5 hover:bg-primary/10 transition-colors duration-150" aria-label="保存工程">
+            <button type="button" id="save-project-btn" class="px-2.5 py-1.5 rounded-lg border border-transparent text-xs font-medium flex items-center gap-1.5 transition-opacity duration-150" aria-label="保存工程">
               <i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存工程</span>
             </button>
           </div>
@@ -78,8 +78,8 @@
               <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i><span>横屏</span>
             </button>
           </div>
-          <div class="rounded-xl border border-border bg-muted/30 relative" id="arranger">
-            <div id="arranger-viewport" class="overflow-x-auto overflow-y-auto">
+          <div class="rounded-xl border border-border bg-muted/30 relative flex-1 min-h-0 flex flex-col" id="arranger">
+            <div id="arranger-viewport" class="overflow-x-auto overflow-y-auto flex-1 min-h-0">
               <div id="arranger-content" style="min-width: 100%;">
                 <div class="grid border-b border-border bg-muted/50" id="time-ruler"></div>
                 <div class="relative" id="tracks-host">
@@ -88,7 +88,7 @@
                 </div>
               </div>
             </div>
-            <div class="flex items-center gap-1.5 px-2 py-1.5 border-t border-border bg-muted/40">
+            <div class="flex items-center gap-1.5 px-2 py-1.5 border-t border-border bg-muted/40 shrink-0">
               <i data-lucide="panel-left-close" class="w-3.5 h-3.5 text-muted-foreground shrink-0"></i>
               <div id="arranger-slider" class="relative flex-1 h-5 bg-muted/60 rounded cursor-pointer group">
                 <div id="arranger-slider-thumb" class="absolute top-0.5 bottom-0.5 bg-primary/70 rounded transition-all" style="left:0; width:30%;"></div>
@@ -119,8 +119,8 @@
         </section>
 
         <!-- Recent captures -->
-        <section>
-          <div class="flex items-center justify-between mb-2">
+        <section class="flex flex-col min-h-0" style="flex: 4 1 0%;">
+          <div class="flex items-center justify-between mb-2 shrink-0">
             <button type="button" id="captures-collapse-btn" class="flex items-center gap-1.5 text-base font-semibold hover:text-primary transition-colors" aria-expanded="true">
               <i data-lucide="zap" class="w-4 h-4 text-primary"></i>最近捕捉
               <span id="captures-chevron" class="inline-flex transition-transform duration-200"><i data-lucide="chevron-down" class="w-4 h-4 text-muted-foreground"></i></span>

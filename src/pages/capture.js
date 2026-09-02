@@ -817,7 +817,7 @@ function renderTracks() {
         <div class="w-6 h-6 rounded-full ${accent} flex items-center justify-center shrink-0">
           <i data-lucide="${icon}" class="w-3 h-3"></i>
         </div>
-        <h3 class="text-[12px] font-medium leading-tight truncate min-w-0">${escapeHtml(tr.name)}</h3>
+        <h3 class="text-[12px] font-medium leading-tight truncate min-w-0 cursor-pointer track-name" title="双击重命名">${escapeHtml(tr.name)}</h3>
       </div>
       <div class="flex items-center gap-1.5">
         <button type="button" data-bt="M" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.muted ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="静音 (M)">M</button>
@@ -1682,6 +1682,47 @@ tracksBody.addEventListener('touchmove', (e) => {
 
 // 双击剪切已移除（和三次点击删除冲突，浏览器三次连点会触发 dblclick）。
 // splitClipAtOffset 函数保留备用，未来如需恢复剪切可重新挂 dblclick 监听器。
+
+// 轨道重命名：双击轨道名进入编辑，回车/失焦保存
+tracksBody.addEventListener('dblclick', (e) => {
+  const h3 = e.target.closest('.track-name');
+  if (!h3 || h3.isContentEditable) return;
+  const row = h3.closest('[data-track-id]');
+  if (!row) return;
+  const tr = project.tracks.find((t) => t.id === row.dataset.trackId);
+  if (!tr) return;
+  e.preventDefault();
+  h3.contentEditable = 'true';
+  h3.classList.add('outline-none', 'ring-1', 'ring-primary/50', 'rounded', 'px-0.5', '-mx-0.5');
+  h3.focus();
+  // 全选文字
+  const range = document.createRange();
+  range.selectNodeContents(h3);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  const finish = (save) => {
+    h3.contentEditable = 'false';
+    h3.classList.remove('outline-none', 'ring-1', 'ring-primary/50', 'rounded', 'px-0.5', '-mx-0.5');
+    if (save) {
+      const name = h3.textContent.trim().slice(0, 20);
+      if (name && name !== tr.name) {
+        tr.name = name;
+        h3.textContent = name;
+        window.MFToast('已重命名');
+      } else {
+        h3.textContent = tr.name; // 回退
+      }
+    } else {
+      h3.textContent = tr.name; // 回退
+    }
+  };
+  h3.addEventListener('blur', () => finish(true), { once: true });
+  h3.addEventListener('keydown', function onKey(ev) {
+    if (ev.key === 'Enter') { ev.preventDefault(); h3.blur(); }
+    else if (ev.key === 'Escape') { h3.removeEventListener('blur', finish); h3.textContent = tr.name; h3.blur(); }
+  });
+});
 
 // 通道条按钮（M / S / R / X）+ 三次点击删除 clip + 剪切模式 的 click 处理
 tracksBody.addEventListener('click', (e) => {

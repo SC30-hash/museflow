@@ -473,6 +473,15 @@ header[class*="bg-card"]::after {
   border-radius: 1rem;
 }
 
+/* 保存工程按钮：红色填充按钮——白色文字确保可读性 */
+#save-project-btn {
+  color: var(--museflow-primary-foreground) !important;
+  border-color: transparent;
+}
+#save-project-btn:hover {
+  opacity: 0.88;
+}
+
 /* 主色调文字 — 标题用 display 字体 */
 h1, h2, h3,
 section > h2, section > h3 {
