@@ -300,14 +300,23 @@ function syncTransportTimeUI() {
 
 // shared microphone stream (多个 MediaRecorder 复用，避免重复申请权限)
 let sharedMicStream = null;
+// ================== 蓝牙免提麦识别与自动规避 ==================
+// Safari + 蓝牙耳机（AirPods 等）的完整问题链：
+// 1) 麦克风一开，系统把蓝牙链路从 A2DP（高音质）切到 HFP 免提（约 16kHz 窄带）；
+// 2) 录音期间耳返（伴奏）经由 HFP 链路 → 发闷；
+// 3) 人声本身也经蓝牙麦采集 → 录出来的就是 16kHz 电话音质，停录也不会恢复；
+// 4) 停止录音、蓝牙麦关闭后，HFP 解除 → 伴奏回放恢复原音质（引擎已锁 48kHz）。
+// 规避手段：不用蓝牙麦、改用本机麦克风 → 系统无需免提模式，耳机输出保持 A2DP，
+// 耳返和人声都是全音质。Safari 会如实上报 HFP 麦的 16kHz 采样率（可检测），
+// 但对 getUserMedia 的 deviceId 指定支持不完整（可能被忽略）→ 换麦后必须验证。
+const BT_MIC_RE = /bluetooth|headset|hands[-\s]?free|HFP|airpods?|powerbeats|beats|buds|earbuds|免提|通话|蓝牙/i;
+const BUILTIN_MIC_RE = /built[-\s]?in|internal|内置|本机|iPhone|iPad|MacBook|iMac|default|默认/i;
 async function acquireMicStream() {
   if (sharedMicStream) return sharedMicStream;
   if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('不支持录音');
   // 音乐录音关掉浏览器默认开启的语音 DSP（AEC / 降噪 / AGC）：
-  // 根因——{audio:true} 默认开启回声消除，iOS/Android 会随之切进「通话模式」，
-  // 系统把媒体输出整体压低（iOS 还会切到听筒）——录音时伴奏变小的元凶。
-  // 另外这三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸），
-  // 音乐录音要原始信号。代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
+  // 三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸）。
+  // 代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
   const musicConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
   let stream;
   try {
@@ -316,81 +325,81 @@ async function acquireMicStream() {
     // 个别老浏览器不认非基本约束：退回默认申请（行为与旧版一致）
     stream = await navigator.mediaDevices.getUserMedia({ audio: true });
   }
-  // ---- 通话级音源自动规避（录音轨不影响伴奏轨的关键一步）----
-  // 蓝牙耳麦的麦克风一打开，系统立刻把整条音频输出切成免提通话模式
-  // （约 16kHz），录音期间伴奏变成电话音质——这是系统行为，拦不住。
-  // 但换个思路：只要【不用】蓝牙麦、改用本机麦克风，系统就不需要免提模式，
-  // 伴奏输出保持原音质。检测到通话级音源且本机另有可用麦克风时自动换麦。
-  let settings = {};
-  try { settings = stream.getAudioTracks()[0]?.getSettings() || {}; } catch {}
-  const voiceGrade = Number(settings.sampleRate) > 0 && Number(settings.sampleRate) <= 16000;
-  if (voiceGrade) {
-    const altId = await findNonBluetoothMic(stream);
-    if (altId) {
-      try {
-        const alt = await navigator.mediaDevices.getUserMedia({
-          audio: { deviceId: { exact: altId }, ...musicConstraints },
-        });
-        // 换麦成功：先停掉蓝牙麦（系统随之退出免提模式，输出恢复高音质），再接管
-        stream.getTracks().forEach((t) => t.stop());
-        stream = alt;
-        window.MFToast('已自动改用本机麦克风录音：蓝牙免提麦会把伴奏压成通话音质，换麦后伴奏保持原音质（人声从本机麦收录）');
-      } catch { /* 换麦失败：保留原音源，下面的体检会给出提示 */ }
-    }
-  }
+  stream = await avoidBluetoothHfpMic(stream, musicConstraints);
   sharedMicStream = stream;
-  warnIfVoiceGradeMic(sharedMicStream);
   return sharedMicStream;
 }
-// 在设备列表里找一个非蓝牙麦克风（避开当前音源；标签带蓝牙/免提特征的不算）。
-// 拿到麦克风权限后标签才可见，本函数只在首次申请成功后调用。
+// 检测当前音源是否疑似蓝牙免提麦（通话级）。
+// Safari/Chrome 在 HFP 下都会如实报 sampleRate=16000；采样率未上报时退回设备名识别。
+async function probeVoiceGradeMic(stream) {
+  try {
+    const tr = stream.getAudioTracks()[0];
+    if (!tr) return { voiceGrade: false };
+    const s = tr.getSettings() || {};
+    const sr = Number(s.sampleRate) || 0;
+    if (sr > 0 && sr <= 16000) return { voiceGrade: true, settings: s };
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const inputs = devs.filter((d) => d.kind === 'audioinput' && d.deviceId);
+    const active = inputs.find((d) => d.deviceId === s.deviceId);
+    if (active && BT_MIC_RE.test(active.label || '')) return { voiceGrade: true, settings: s };
+    // iOS 盲区兜底：系统只暴露一个输入且名字像蓝牙耳麦（连着 AirPods 时就如此）
+    if (inputs.length === 1 && BT_MIC_RE.test(inputs[0].label || '') && !BUILTIN_MIC_RE.test(inputs[0].label || '')) {
+      return { voiceGrade: true, settings: s };
+    }
+    return { voiceGrade: false, settings: s };
+  } catch {
+    return { voiceGrade: false };
+  }
+}
+// 在设备列表里挑一个非蓝牙麦克风（优先名字像内置麦的）。
 async function findNonBluetoothMic(currentStream) {
   try {
     const curId = currentStream?.getAudioTracks?.()[0]?.getSettings?.().deviceId || '';
     const devs = await navigator.mediaDevices.enumerateDevices();
-    const btRe = /bluetooth|headset|hands[-\s]?free|HFP|免提|通话|蓝牙/i;
-    const cand = devs.find(
-      (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== curId && d.label && !btRe.test(d.label),
+    const cands = devs.filter(
+      (d) => d.kind === 'audioinput' && d.deviceId && d.deviceId !== curId && d.label && !BT_MIC_RE.test(d.label),
     );
-    return cand ? cand.deviceId : null;
+    const preferred = cands.find((d) => BUILTIN_MIC_RE.test(d.label));
+    return preferred ? preferred.deviceId : (cands[0] ? cands[0].deviceId : null);
   } catch {
     return null;
   }
 }
-// ================== 录音链路体检 ==================
-// 应用内播放路径（伴奏/录音轨）在播放与录音状态下已完全一致（同一套
-// AudioBuffer + FX 链）。录音时仍听感发闷，剩下的元凶都在系统层，网页无法绕过：
-// 1) 蓝牙耳机：麦克风一开，系统把耳机从 A2DP（高音质立体声）切到 HFP 通话模式
-//    （约 16kHz 单声道）——iOS/安卓/Windows 通用行为，任何网页都躲不掉；
-// 2) iOS Safari：麦克风开启后输出可能被路由到听筒（WebKit 已知问题）；
-// 3) 内置浏览器（微信等 X5 内核）：无视 echoCancellation:false，语音处理照旧。
-// 能做的是检测出来并给出对症提示。麦克风音源采样率 ≤16kHz ≈ 通话级链路（HFP/语音模式）。
-let micGradeHintShown = false;
-function warnIfVoiceGradeMic(stream) {
-  if (micGradeHintShown) return;
-  const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
-  if (!tr) return;
-  let s = {};
-  try { s = tr.getSettings() || {}; } catch { return; }
-  const sr = Number(s.sampleRate) || 0;
-  if (sr > 0 && sr <= 16000) {
-    micGradeHintShown = true;
-    window.MFToast('检测到通话级音源（多为蓝牙耳机麦克风），且本机没有其他可用麦克风：录音期间系统会把伴奏压成通话音质（发闷）。建议改戴有线耳机，或关闭蓝牙后用手机扬声器+内置麦录音');
-    return;
+let btAvoidToastShown = false;
+async function avoidBluetoothHfpMic(stream, musicConstraints) {
+  const probe = await probeVoiceGradeMic(stream);
+  // 顺带体检：申请明确关了 AEC，settings 仍报 true → 浏览器忽略了音乐录音设置
+  if (!probe.voiceGrade && probe.settings && probe.settings.echoCancellation === true && !btAvoidToastShown) {
+    btAvoidToastShown = true;
+    window.MFToast('当前浏览器忽略了音乐录音设置（仍强制语音处理），录音听感会被压窄。建议用最新版 Chrome / Safari 打开本页');
+    return stream;
   }
-  if (s.echoCancellation === true) {
-    // 申请时明确关了 AEC，settings 里仍是 true → 浏览器忽略了音乐录音设置
-    micGradeHintShown = true;
-    window.MFToast('当前浏览器忽略了音乐录音设置（仍强制语音处理），录音时伴奏会被压窄。建议用最新版 Chrome / Safari 打开本页');
-    return;
+  if (!probe.voiceGrade) return stream;
+  // 检测到通话级音源（多为蓝牙耳麦）：尝试切换到本机麦克风
+  const altId = await findNonBluetoothMic(stream);
+  if (altId) {
+    try {
+      const alt = await navigator.mediaDevices.getUserMedia({
+        audio: { deviceId: { exact: altId }, ...musicConstraints },
+      });
+      const as = alt.getAudioTracks()[0]?.getSettings() || {};
+      const orig = probe.settings || {};
+      const sameDev = !!as.deviceId && as.deviceId === orig.deviceId;
+      const altSR = Number(as.sampleRate) || 0;
+      // 验证：设备确实换了，且没有明确仍是 16k（Safari 可能忽略 deviceId 指定）
+      if (!sameDev && (altSR === 0 || altSR > 16000)) {
+        stream.getTracks().forEach((t) => t.stop()); // 停掉蓝牙麦 → 系统退出免提模式，耳机回到高音质 A2DP
+        window.MFToast('已自动改用本机麦克风录音（蓝牙免提麦会把伴奏和人声都压成通话音质）。现在耳返伴奏是原音质，人声也按全音质收录');
+        return alt;
+      }
+      alt.getTracks().forEach((t) => t.stop()); // Safari 忽略了设备选择：放弃切换
+    } catch { /* 切换失败：退回原音源 */ }
   }
-  // iOS 是检测盲区（getSettings 通常不报采样率，路由到听筒也无法感知）：
-  // 给一次性小贴士，帮用户自己排除蓝牙/听筒这两种系统级降质。
-  const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-  if (isIOS) {
-    micGradeHintShown = true;
-    window.MFToast('iPhone/iPad 录音小贴士：蓝牙耳机录音时系统会切到通话音质、外放可能走听筒，伴奏都会发闷。想原汁原味听伴奏，戴有线耳机最稳');
+  if (!btAvoidToastShown) {
+    btAvoidToastShown = true;
+    window.MFToast('蓝牙耳机麦克风已启用：录音期间耳返会发闷、人声也会录成通话音质——这是系统行为，网页无法绕过；停止录音后伴奏立即恢复原音质（已录下的人声不变）。想全程原音质：改戴有线耳机，或拔掉蓝牙用本机麦');
   }
+  return stream;
 }
 function releaseMicStream() {
   if (sharedMicStream) {
