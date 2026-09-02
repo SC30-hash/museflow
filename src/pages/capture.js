@@ -27,7 +27,7 @@ function setMode(next) {
     const active = b.dataset.mode === next;
     b.setAttribute('aria-pressed', String(active));
     b.className = active
-      ? 'flex-1 py-2 text-sm font-medium rounded-lg bg-card text-foreground shadow-sm'
+      ? 'flex-1 py-2 text-sm font-medium rounded-lg bg-primary/15 text-primary shadow-sm'
       : 'flex-1 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-foreground transition-colors duration-150';
   });
   recordPanel.style.display = next === REC_MODE ? 'flex' : 'none';
@@ -797,7 +797,8 @@ function renderTracks() {
   const totalDur = getTotalDuration();
   project.tracks.forEach((tr, i) => {
     const row = document.createElement('div');
-    row.className = 'grid border-b border-border last:border-b-0 relative';
+    const hasClips = tr.clips.length > 0;
+    row.className = `grid border-b border-border last:border-b-0 relative ${hasClips ? '' : 'opacity-55'}`;
     row.style.gridTemplateColumns = `${CHANNEL_PX}px ${totalDur * PX_PER_SEC}px`;
     row.dataset.trackId = tr.id;
     const h = trackH(tr); // 该轨当前高度（拖边框独立调整，存 tr.trackH）
@@ -2230,8 +2231,8 @@ function transportStop() {
   stopAllPlaybacks();
   swapIcon(document.getElementById('transport-play'), 'play');
   const recBtn = document.getElementById('transport-rec');
-  recBtn.classList.remove('bg-red-500', 'text-white', 'animate-pulse');
-  recBtn.classList.add('bg-muted', 'text-muted-foreground');
+  recBtn.classList.remove('bg-red-500', 'text-white', 'animate-pulse', 'border-red-500');
+  recBtn.classList.add('border-primary/50', 'text-primary');
   recBtn.setAttribute('aria-pressed', 'false');
   // 不重置 playBaseSec：保留指针位置，让用户下次录音/播放从这里继续
   playStartTime = 0;
@@ -2323,8 +2324,8 @@ async function transportRec() {
   });
   // UI
   const recBtn = document.getElementById('transport-rec');
-  recBtn.classList.remove('bg-muted', 'text-muted-foreground');
-  recBtn.classList.add('bg-red-500', 'text-white', 'animate-pulse');
+  recBtn.classList.remove('border-primary/50', 'text-primary');
+  recBtn.classList.add('bg-red-500', 'text-white', 'animate-pulse', 'border-red-500');
   recBtn.setAttribute('aria-pressed', 'true');
   swapIcon(document.getElementById('transport-play'), 'pause');
   transportRaf = requestAnimationFrame(tick);
@@ -2879,6 +2880,26 @@ if (capturesToggleSelectBtn) {
 if (capturesSelectCancelBtn) {
   capturesSelectCancelBtn.addEventListener('click', exitCapturesSelectMode);
 }
+// 最近捕捉折叠/展开
+(function setupCapturesCollapse() {
+  const btn = document.getElementById('captures-collapse-btn');
+  const body = document.getElementById('captures-collapse-body');
+  const chevron = document.getElementById('captures-chevron');
+  if (!btn || !body) return;
+  let collapsed = false;
+  btn.addEventListener('click', () => {
+    collapsed = !collapsed;
+    btn.setAttribute('aria-expanded', String(!collapsed));
+    if (collapsed) {
+      body.style.maxHeight = body.scrollHeight + 'px';
+      requestAnimationFrame(() => { body.style.maxHeight = '0px'; });
+    } else {
+      body.style.maxHeight = body.scrollHeight + 'px';
+      setTimeout(() => { if (!collapsed) body.style.maxHeight = '9999px'; }, 320);
+    }
+    if (chevron) chevron.style.transform = collapsed ? 'rotate(-90deg)' : '';
+  });
+})();
 if (capturesSelectAll) {
   capturesSelectAll.addEventListener('change', () => {
     const items = captures.all().filter((it) => it.kind !== 'text');

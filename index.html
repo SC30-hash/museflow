@@ -44,12 +44,12 @@
       <main class="page-main px-4 py-5 space-y-5" data-view="capture">
         <!-- Mode toggle -->
         <div class="p-1 bg-muted rounded-xl flex gap-1" id="mode-toggle">
-          <button type="button" data-mode="rec" class="flex-1 py-2 text-sm font-medium rounded-lg bg-card text-foreground shadow-sm" aria-pressed="true">录音</button>
+          <button type="button" data-mode="rec" class="flex-1 py-2 text-sm font-medium rounded-lg bg-primary/15 text-primary shadow-sm" aria-pressed="true">录音</button>
           <button type="button" data-mode="text" class="flex-1 py-2 text-sm font-medium rounded-lg text-muted-foreground hover:text-foreground transition-colors duration-150" aria-pressed="false">文字</button>
         </div>
 
         <!-- Record card -->
-        <section id="record-panel" class="bg-card border border-border rounded-2xl p-3 flex flex-col gap-3 shadow-sm">
+        <section id="record-panel" class="bg-card border border-border rounded-2xl p-2.5 flex flex-col gap-2.5 shadow-sm">
           <!-- Row 1: tools (left) + save (right) -->
           <div class="flex items-center gap-1.5">
             <button type="button" id="import-backing-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="导入伴奏">
@@ -62,7 +62,7 @@
               <i data-lucide="scissors" class="w-3.5 h-3.5"></i><span>剪切</span>
             </button>
             <div class="flex-1 min-w-0"></div>
-            <button type="button" id="save-project-btn" class="px-2.5 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-colors duration-150" aria-label="保存工程">
+            <button type="button" id="save-project-btn" class="px-2.5 py-1.5 rounded-lg border border-primary/40 text-primary text-xs font-medium flex items-center gap-1.5 hover:bg-primary/10 transition-colors duration-150" aria-label="保存工程">
               <i data-lucide="save" class="w-3.5 h-3.5"></i><span>保存工程</span>
             </button>
           </div>
@@ -70,9 +70,9 @@
           <div class="flex items-center gap-1.5">
             <button type="button" id="transport-stop" class="w-8 h-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="停止"><i data-lucide="square" class="w-4 h-4"></i></button>
             <button type="button" id="transport-play" class="w-8 h-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="播放"><i data-lucide="play" class="w-4 h-4 ml-0.5"></i></button>
-            <button type="button" id="transport-rec" class="w-8 h-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="录音" aria-pressed="false"><i data-lucide="circle" class="w-4 h-4"></i></button>
+            <button type="button" id="transport-rec" class="w-8 h-8 rounded-full border-2 border-primary/50 text-primary flex items-center justify-center hover:border-primary hover:bg-primary/10 transition-colors duration-150" aria-label="录音" aria-pressed="false"><i data-lucide="circle" class="w-4 h-4"></i></button>
             <button type="button" id="transport-monitor" class="w-8 h-8 rounded-md bg-muted text-muted-foreground flex items-center justify-center hover:text-foreground transition-colors duration-150" aria-label="录音监听" aria-pressed="false" title="录音监听：实时听到自己的声音（含该轨效果）。建议戴耳机，避免扬声器啸叫"><i data-lucide="headphones" class="w-4 h-4"></i></button>
-            <div class="ml-2 px-3 py-1.5 rounded-lg bg-muted/70 border border-border/70 text-sm font-mono tabular-nums font-semibold tracking-wider text-muted-foreground" id="transport-time" role="timer">00:00.00</div>
+            <div class="ml-2 px-3 py-1.5 rounded-lg bg-muted/50 border border-border/50 text-sm font-mono tabular-nums tracking-wider text-muted-foreground/70" id="transport-time" role="timer">00:00.00</div>
             <div class="flex-1 min-w-0"></div>
             <button type="button" id="wide-toggle-btn" class="px-2.5 py-1.5 rounded-lg bg-muted text-xs font-medium text-muted-foreground flex items-center gap-1.5 hover:text-foreground transition-colors duration-150" aria-label="横屏扩大" aria-pressed="false">
               <i data-lucide="maximize-2" class="w-3.5 h-3.5"></i><span>横屏</span>
@@ -120,8 +120,11 @@
 
         <!-- Recent captures -->
         <section>
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-base font-semibold flex items-center gap-1.5"><i data-lucide="zap" class="w-4 h-4 text-primary"></i>最近捕捉</h2>
+          <div class="flex items-center justify-between mb-2">
+            <button type="button" id="captures-collapse-btn" class="flex items-center gap-1.5 text-base font-semibold hover:text-primary transition-colors" aria-expanded="true">
+              <i data-lucide="zap" class="w-4 h-4 text-primary"></i>最近捕捉
+              <span id="captures-chevron" class="inline-flex transition-transform duration-200"><i data-lucide="chevron-down" class="w-4 h-4 text-muted-foreground"></i></span>
+            </button>
             <div class="flex items-center gap-2">
               <button type="button" id="captures-toggle-select" class="text-xs px-2 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                 <i data-lucide="check-square" class="w-3.5 h-3.5 inline align-middle mr-1"></i>多选
@@ -129,6 +132,7 @@
               <span id="captures-count" class="text-xs text-muted-foreground"></span>
             </div>
           </div>
+          <div id="captures-collapse-body" class="overflow-hidden transition-all duration-300 ease-in-out" style="max-height: 9999px;">
           <div id="captures-select-bar" class="hidden mb-3 flex items-center gap-2 p-2 rounded-lg bg-muted/50 border border-border">
             <label class="flex items-center gap-1.5 text-xs cursor-pointer select-none">
               <input type="checkbox" id="captures-select-all" class="accent-primary rounded-sm" />
@@ -144,6 +148,7 @@
           </div>
           <div class="space-y-3" id="captures-list">
             <!-- populated by JS -->
+          </div>
           </div>
         </section>
       </main>
