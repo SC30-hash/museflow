@@ -238,12 +238,14 @@ function syncZoomUI() {
   if (label) label.textContent = `${Math.round((PX_PER_SEC / ZOOM_HOME) * 100)}%`;
 }
 
-// 键盘：+/- 缩放（DAW 惯例），0 复位
+// 键盘：+/- 水平缩放（DAW 惯例），0 复位；↑/↓ 轨道高度（竖向看波形）
 document.addEventListener('keydown', (e) => {
   if (e.target.closest('input, textarea, select')) return;
   if (e.key === '+' || e.key === '=') zoomBy(1.25);
   else if (e.key === '-' || e.key === '_') zoomBy(0.8);
   else if (e.key === '0') zoomHome();
+  else if (e.key === 'ArrowUp') { e.preventDefault(); trackHeightBy(1.25); }
+  else if (e.key === 'ArrowDown') { e.preventDefault(); trackHeightBy(0.8); }
 });
 
 // Ctrl/Cmd + 滚轮：以光标为锚点缩放（桌面 DAW 标准操作）
@@ -283,6 +285,26 @@ document.getElementById('arranger-viewport')?.addEventListener('wheel', (e) => {
   }, { passive: false });
   vp.addEventListener('touchend', () => { pinch = null; }, { passive: true });
 })();
+
+// ================== 轨道高度（竖向缩放）：拉高看波形 ==================
+// 波形 SVG viewBox 自适应（preserveAspectRatio=none），轨道拉高时波形
+// 纵向等比拉伸、横向不变——不需要重算 SVG，直接改 DOM 高度即可，零开销。
+const TRACK_H_HOME = 44;
+const TRACK_H_MIN = 44;
+const TRACK_H_MAX = 360;
+let TRACK_H = TRACK_H_HOME;
+function setTrackHeight(h) {
+  const next = Math.max(TRACK_H_MIN, Math.min(TRACK_H_MAX, Math.round(h)));
+  if (next === TRACK_H) return;
+  TRACK_H = next;
+  document.querySelectorAll('#tracks-body > div').forEach((row) => {
+    const strip = row.children[0];
+    const arr = row.children[1];
+    if (arr) arr.style.height = `${TRACK_H}px`;
+    if (strip) strip.style.minHeight = `${TRACK_H}px`;
+  });
+}
+function trackHeightBy(f) { setTrackHeight(TRACK_H * f); }
 
 // 动态计算时间轴总时长：所有 clip 最大值 + 缓冲，最少 30s
 // 录音中：clip 还未加入数组，需用 currentSeconds() 兜底，保证时间轴随录音长度扩展
@@ -701,7 +723,8 @@ function renderTracks() {
 
     // --- Channel strip (左列) ---
     const strip = document.createElement('div');
-    strip.className = 'px-2 py-1.5 border-r border-border bg-muted/40 flex items-center gap-1.5 min-h-[44px]';
+    strip.className = 'px-2 py-1.5 border-r border-border bg-muted/40 flex items-center gap-1.5';
+    strip.style.minHeight = `${TRACK_H}px`; // 竖向缩放：跟随当前轨道高度
     const icon = tr.kind === 'backing' ? 'music-4' : 'mic';
     const accent = tr.kind === 'backing' ? 'bg-secondary/20 text-secondary-foreground' : 'bg-primary/15 text-primary';
     strip.innerHTML = `
@@ -722,8 +745,9 @@ function renderTracks() {
 
     // --- Arranger clips 区（右列）---
     const arr = document.createElement('div');
-    // 静音轨整行淡化，状态一眼可见
-    arr.className = `relative h-[44px] bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
+    // 静音轨整行淡化，状态一眼可见；高度随竖向缩放（波形纵向拉伸）
+    arr.className = `relative bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
+    arr.style.height = `${TRACK_H}px`;
     arr.style.width = `${totalDur * PX_PER_SEC}px`;
     // 垂直秒线（步进随缩放自适应：主刻度粗、次刻度细；整数计数防浮点漂移）
     const steps = timelineSteps();
@@ -3138,6 +3162,11 @@ document.getElementById('zoom-in-btn')?.addEventListener('click', () => zoomBy(1
 document.getElementById('zoom-out-btn')?.addEventListener('click', () => zoomBy(0.8));
 document.getElementById('zoom-fit-btn')?.addEventListener('click', zoomFit);
 document.getElementById('zoom-level-label')?.addEventListener('dblclick', zoomHome);
+// 竖向缩放控件：拉高/降低轨道，双击复位
+document.getElementById('track-h-up-btn')?.addEventListener('click', () => trackHeightBy(1.25));
+document.getElementById('track-h-down-btn')?.addEventListener('click', () => trackHeightBy(0.8));
+document.getElementById('track-h-up-btn')?.addEventListener('dblclick', () => setTrackHeight(TRACK_H_HOME));
+document.getElementById('track-h-down-btn')?.addEventListener('dblclick', () => setTrackHeight(TRACK_H_HOME));
 syncZoomUI();
 function setupArrangerSlider() {
   const viewport = document.getElementById('arranger-viewport');

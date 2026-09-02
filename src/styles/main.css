@@ -914,7 +914,8 @@ body.in-wide-mode .page-main {
   scrollbar-color: rgba(229, 62, 62, 0.3) transparent;
 }
 #arranger-viewport::-webkit-scrollbar {
-  height: 6px;
+  height: 6px;  /* 横向滚动条粗细 */
+  width: 6px;   /* 竖向滚动条粗细（轨道拉高后出现） */
 }
 #arranger-viewport::-webkit-scrollbar-track {
   background: transparent;
