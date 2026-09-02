@@ -259,31 +259,60 @@ document.getElementById('arranger-viewport')?.addEventListener('wheel', (e) => {
   zoomBy(e.deltaY < 0 ? 1.15 : 1 / 1.15, anchorSec, anchorX);
 }, { passive: false });
 
-// 双指捏合缩放（触屏）：viewport 元数据已禁用页面缩放，此处接管
+// 双指捏合缩放（触屏）。生效前提（缺一不可）：
+//  1) #arranger-viewport 声明 touch-action: pan-x pan-y（main.css）——不含
+//     pinch-zoom，浏览器就不会把双指手势抢去做整页缩放（iOS Safari 无视 meta
+//     的 user-scalable=no，老实现正是因此收不到事件）；单指平移不受影响。
+//  2) gesture* 保险丝拦住老 iOS 的非标准手势事件。
+//  3) 双指落地即取消进行中的长按/拖拽（捏合优先级更高）。
+//  4) touchmove 在手机上 60–120Hz，重渲染必须 rAF 按帧合批。
 (function setupPinchZoom() {
   const vp = document.getElementById('arranger-viewport');
   if (!vp) return;
-  let pinch = null; // { d0, pps0 }
+  ['gesturestart', 'gesturechange', 'gestureupdate'].forEach((t) =>
+    vp.addEventListener(t, (e) => e.preventDefault(), { passive: false }));
+  let pinch = null; // { d0, pps0, targetPps, midX }
+  let rafId = 0;
+  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
+
+  function startPinch(a, b) {
+    pinch = { d0: dist(a, b), pps0: PX_PER_SEC, targetPps: PX_PER_SEC, midX: null };
+  }
+  function applyPinch() {
+    rafId = 0;
+    if (!pinch || pinch.midX == null) return;
+    const rect = vp.getBoundingClientRect();
+    const anchorX = pinch.midX - rect.left;
+    // 增量锚定：以「此刻双指中点」对应的时间为锚，缩放后该时刻留在中点原地
+    const anchorSec = Math.max(0, (vp.scrollLeft + anchorX - CHANNEL_PX) / PX_PER_SEC);
+    setZoom(pinch.targetPps, anchorSec, anchorX);
+  }
+  function endPinch() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    if (!pinch) return;
+    pinch = null;
+    // 双指松手后的合成 click 不计入三击删除（防误删 clip）
+    suppressClickUntil = Math.max(suppressClickUntil, Date.now() + 600);
+  }
+
   vp.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 2) return;
-    const [a, b] = e.touches;
-    pinch = {
-      d0: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1,
-      pps0: PX_PER_SEC,
-    };
+    if (pressState) clearPress(); // 双指落地 = 捏合意图：取消长按/拖拽
+    startPinch(e.touches[0], e.touches[1]);
   }, { passive: true });
   vp.addEventListener('touchmove', (e) => {
     if (!pinch || e.touches.length !== 2) return;
-    e.preventDefault();
+    e.preventDefault(); // 拦下双指期间的滚动与系统手势
     const [a, b] = e.touches;
-    const d = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
-    const rect = vp.getBoundingClientRect();
-    // 锚点基于当前视图状态（每次 move 重新锚定，连续缩放不漂移）
-    const anchorX = (a.clientX + b.clientX) / 2 - rect.left;
-    const anchorSec = Math.max(0, (vp.scrollLeft + anchorX - CHANNEL_PX) / PX_PER_SEC);
-    setZoom(pinch.pps0 * (d / pinch.d0), anchorSec, anchorX);
+    pinch.targetPps = pinch.pps0 * (dist(a, b) / pinch.d0);
+    pinch.midX = (a.clientX + b.clientX) / 2;
+    if (!rafId) rafId = requestAnimationFrame(applyPinch);
   }, { passive: false });
-  vp.addEventListener('touchend', () => { pinch = null; }, { passive: true });
+  vp.addEventListener('touchend', (e) => {
+    if (e.touches.length === 2) { startPinch(e.touches[0], e.touches[1]); return; } // 三指收二指：重定基线防跳变
+    if (e.touches.length < 2) endPinch();
+  }, { passive: true });
+  vp.addEventListener('touchcancel', endPinch, { passive: true });
 })();
 
 // ================== 轨道高度（竖向缩放）：拖边框拉升、拉高看波形 ==================

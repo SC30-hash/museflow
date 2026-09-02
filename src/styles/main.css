@@ -911,6 +911,10 @@ body.in-wide-mode .page-main {
 /* Arranger 滑块样式 */
 #arranger-viewport {
   -webkit-overflow-scrolling: touch;
+  /* 双指捏合归 JS 处理：touch-action 不含 pinch-zoom/zoom，浏览器就不会把
+     双指手势抢去做整页缩放（iOS Safari 无视 meta 的 user-scalable=no）；
+     单指横向/竖向平移照常走原生滚动 */
+  touch-action: pan-x pan-y;
   scrollbar-width: thin;
   scrollbar-color: rgba(229, 62, 62, 0.3) transparent;
 }
