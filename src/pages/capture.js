@@ -342,12 +342,10 @@ let earpieceTipShown = false;
 function applyMusicSessionForMic(stream) {
   const as = navigator.audioSession;
   if (!as) {
-    // iOS < 16.4 没有此 API：无法阻止系统把输出切到听筒，给一次对症提示
-    const isIOS = /iP(hone|ad|od)/.test(navigator.userAgent)
-      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-    if (isIOS && !earpieceTipShown) {
+    // iOS < 16.4 没有此 API：静音键免疫已由底噪轨兜底；听筒路由无法干预，给一次对症提示
+    if (isIOSDevice() && !earpieceTipShown) {
       earpieceTipShown = true;
-      window.MFToast('当前 iOS 版本较旧：录音期间系统可能把伴奏切到听筒（外放会没声音、贴近耳朵才能听到）。升级到 iOS 16.4 以上可彻底解决');
+      window.MFToast('当前 iOS 版本较旧：静音键已不影响播放（已启用兼容模式）；若录音期间外放仍无声（系统把输出切到听筒），升级到 iOS 16.4 以上可彻底解决');
     }
     return;
   }
@@ -366,12 +364,12 @@ function applyMusicSessionForMic(stream) {
     }
   } catch { /* 赋值被拒：维持浏览器默认行为 */ }
 }
-// 麦克风释放时还原会话类型，交回浏览器默认管理
+// 麦克风释放时会话还原为应用级 'playback'（静音键免疫是常驻的，不交回默认）
 function clearMusicSession() {
   micSessionActive = false;
   const as = navigator.audioSession;
   if (!as) return;
-  try { as.type = 'auto'; } catch {}
+  try { as.type = 'playback'; } catch {}
 }
 // 检测当前音源是否疑似蓝牙免提麦（通话级）。
 // Safari/Chrome 在 HFP 下都会如实报 sampleRate=16000；采样率未上报时退回设备名识别。
@@ -750,6 +748,45 @@ function ensureAC() {
   }
   return _ac;
 }
+// ---- iOS 静音键免疫 ----
+// iPhone 侧边静音键默认连 WebAudio 一起静音（WebKit bug 237322）：
+// 切了静音，页面里所有伴奏/播放瞬间无声——用户以为「外放坏了」。
+// 标准对策是把页面声明成「媒体播放」会话（与系统音乐 App 同类），
+// 静音键从此不影响：
+//  - iOS 16.4+：navigator.audioSession.type = 'playback'（官方 API）
+//  - 旧版 iOS：起一条循环的近无声 <audio> 底噪轨——只要有媒体元素在播，
+//    iOS 就把页面当媒体播放对待、走媒体通道，静音键失效
+//    （维基百科 / feross/unmute-ios-audio 等通用做法，bug 237322 官方认可）
+function isIOSDevice() {
+  return /iP(hone|ad|od)/.test(navigator.userAgent)
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+let silentKeeper = null;
+function makeSilentWavUrl() {
+  // 0.2s @8kHz 8bit 单声道静音 WAV，运行时拼字节（免内联 base64）；
+  // 每 100 个采样埋一个 LSB 抖动，避免被 iOS 优化成「纯静音可忽略」
+  const sr = 8000;
+  const n = 1600;
+  const ab = new ArrayBuffer(44 + n);
+  const dv = new DataView(ab);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) dv.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); dv.setUint32(4, 36 + n, true); w(8, 'WAVE');
+  w(12, 'fmt '); dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+  dv.setUint32(24, sr, true); dv.setUint32(28, sr, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true);
+  w(36, 'data'); dv.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) dv.setUint8(44 + i, i % 100 === 0 ? 129 : 128);
+  return URL.createObjectURL(new Blob([ab], { type: 'audio/wav' }));
+}
+function startSilentKeeper() {
+  try {
+    const el = document.createElement('audio');
+    el.loop = true;
+    el.volume = 0.01; // 非零音量（个别版本把 0 音量当无效媒体），内容本身是静音
+    el.src = makeSilentWavUrl();
+    silentKeeper = el;
+    el.play().catch(() => {}); // 手势外失败：保活逻辑里会重试
+  } catch {}
+}
 // 引擎保活：拔插蓝牙耳机、切换外放、锁屏返回、来电打断等都会让 Safari
 // 把引擎挂到 suspended / interrupted（后者为 Safari 特有状态），此后整页
 // 静音——切到外放后“伴奏没声音”的第二元凶。旧代码只在首次手势 resume
@@ -758,7 +795,23 @@ function ensureAC() {
   const revive = () => {
     const c = ensureAC();
     if (c && c.state !== 'running') c.resume().catch(() => {});
+    // 旧版 iOS 的静音键免疫底噪轨若被系统暂停（后台返回等）：补播
+    if (silentKeeper && silentKeeper.paused) silentKeeper.play().catch(() => {});
   };
+  // 首次手势即声明媒体播放会话（静音键免疫），16.4+ 走官方 API、旧版起底噪轨
+  let sessionBooted = false;
+  const bootSession = () => {
+    if (sessionBooted) return;
+    sessionBooted = true;
+    if (!isIOSDevice()) return;
+    if (navigator.audioSession) {
+      try { navigator.audioSession.type = 'playback'; } catch {}
+    } else {
+      startSilentKeeper();
+    }
+  };
+  document.addEventListener('pointerdown', bootSession, { once: true, capture: true });
+  document.addEventListener('keydown', bootSession, { once: true, capture: true });
   // 每次手势都尝试复活（running 时 resume 为幂等空操作，无害）
   document.addEventListener('pointerdown', revive, true);
   document.addEventListener('keydown', revive, true);
