@@ -290,8 +290,8 @@ document.getElementById('arranger-viewport')?.addEventListener('wheel', (e) => {
 // 波形 SVG viewBox 自适应（preserveAspectRatio=none），轨道拉高时波形
 // 纵向等比拉伸、横向不变——直接改 DOM 高度即可，零重算开销。
 // 高度存在每条轨道上（tr.trackH）：拖拽 handle 只改单轨，按钮/键盘改全部。
-const TRACK_H_HOME = 44;
-const TRACK_H_MIN = 44;
+const TRACK_H_HOME = 54; // 两行通道条（上行图标+名称、下行按钮）所需：4+24+2+20+4
+const TRACK_H_MIN = 54;
 const TRACK_H_MAX = 360;
 function trackH(tr) {
   return Math.max(TRACK_H_MIN, Math.min(TRACK_H_MAX, tr?.trackH || TRACK_H_HOME));
@@ -773,20 +773,23 @@ function renderTracks() {
     row.dataset.trackId = tr.id;
     const h = trackH(tr); // 该轨当前高度（拖边框独立调整，存 tr.trackH）
 
-    // --- Channel strip (左列) ---
+    // --- Channel strip (左列)：两行紧凑布局 ---
+    // 旧的单行塞「28px 图标 + 名称 + M/S/R/F/X 五个 20px 按钮」= 164px 固定宽，
+    // 超过 CHANNEL_PX(140)——录音轨多一个 R 键，X 删除键直接顶出框外。
+    // 改两行：上行 图标+名称、下行 按钮组，140px 宽绰绰有余。
     const strip = document.createElement('div');
-    strip.className = 'px-2 py-1.5 border-r border-border bg-muted/40 flex items-center gap-1.5';
-    strip.style.minHeight = `${h}px`; // 竖向缩放：跟随该轨高度
+    strip.className = 'px-1.5 py-1 border-r border-border bg-muted/40 flex flex-col justify-center gap-0.5';
+    strip.style.minHeight = `${h}px`; // 竖向缩放：跟随该轨高度（内容垂直居中）
     const icon = tr.kind === 'backing' ? 'music-4' : 'mic';
     const accent = tr.kind === 'backing' ? 'track-icon-backing' : 'bg-primary/15 text-primary';
     strip.innerHTML = `
-      <div class="w-7 h-7 rounded-full ${accent} flex items-center justify-center shrink-0">
-        <i data-lucide="${icon}" class="w-3.5 h-3.5"></i>
+      <div class="flex items-center gap-1.5 min-w-0">
+        <div class="w-6 h-6 rounded-full ${accent} flex items-center justify-center shrink-0">
+          <i data-lucide="${icon}" class="w-3 h-3"></i>
+        </div>
+        <h3 class="text-[12px] font-medium leading-tight truncate min-w-0">${escapeHtml(tr.name)}</h3>
       </div>
-      <div class="flex-1 min-w-0">
-        <h3 class="text-[12px] font-medium leading-tight truncate">${escapeHtml(tr.name)}</h3>
-      </div>
-      <div class="flex items-center gap-0.5 shrink-0">
+      <div class="flex items-center gap-1.5">
         <button type="button" data-bt="M" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.muted ? 'bg-primary/20 text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="静音 (M)">M</button>
         <button type="button" data-bt="S" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.solo ? 'bg-muted text-primary' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="独奏 (S)">S</button>
         ${tr.kind === 'record' ? `<button type="button" data-bt="R" class="w-5 h-5 rounded text-[10px] font-bold flex items-center justify-center transition-colors ${tr.armed ? 'bg-red-500 text-white animate-pulse' : 'bg-muted/50 text-muted-foreground hover:text-foreground'}" title="Arm 录音 (R)">R</button>` : ''}
