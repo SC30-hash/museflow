@@ -286,25 +286,75 @@ document.getElementById('arranger-viewport')?.addEventListener('wheel', (e) => {
   vp.addEventListener('touchend', () => { pinch = null; }, { passive: true });
 })();
 
-// ================== 轨道高度（竖向缩放）：拉高看波形 ==================
+// ================== 轨道高度（竖向缩放）：拖边框拉升、拉高看波形 ==================
 // 波形 SVG viewBox 自适应（preserveAspectRatio=none），轨道拉高时波形
-// 纵向等比拉伸、横向不变——不需要重算 SVG，直接改 DOM 高度即可，零开销。
+// 纵向等比拉伸、横向不变——直接改 DOM 高度即可，零重算开销。
+// 高度存在每条轨道上（tr.trackH）：拖拽 handle 只改单轨，按钮/键盘改全部。
 const TRACK_H_HOME = 44;
 const TRACK_H_MIN = 44;
 const TRACK_H_MAX = 360;
-let TRACK_H = TRACK_H_HOME;
+function trackH(tr) {
+  return Math.max(TRACK_H_MIN, Math.min(TRACK_H_MAX, tr?.trackH || TRACK_H_HOME));
+}
+// 统一设置所有轨道高度（按钮/键盘入口；单轨拖拽走 renderTracks 里挂的 handle）
 function setTrackHeight(h) {
   const next = Math.max(TRACK_H_MIN, Math.min(TRACK_H_MAX, Math.round(h)));
-  if (next === TRACK_H) return;
-  TRACK_H = next;
-  document.querySelectorAll('#tracks-body > div').forEach((row) => {
+  project.tracks.forEach((tr) => { tr.trackH = next; });
+  document.querySelectorAll('#tracks-body > div[data-track-id]').forEach((row) => {
     const strip = row.children[0];
     const arr = row.children[1];
-    if (arr) arr.style.height = `${TRACK_H}px`;
-    if (strip) strip.style.minHeight = `${TRACK_H}px`;
+    if (arr) arr.style.height = `${next}px`;
+    if (strip) strip.style.minHeight = `${next}px`;
   });
 }
-function trackHeightBy(f) { setTrackHeight(TRACK_H * f); }
+function trackHeightBy(f) {
+  setTrackHeight((project.tracks.length ? trackH(project.tracks[0]) : TRACK_H_HOME) * f);
+}
+// 单轨实时改高度（拖拽 move 事件里逐帧调用，只动 DOM 不重渲染）
+function applyTrackHeight(row, h) {
+  const strip = row.children[0];
+  const arr = row.children[1];
+  if (arr) arr.style.height = `${h}px`;
+  if (strip) strip.style.minHeight = `${h}px`;
+}
+// 拖拽轨道底边改高度：Pointer Events 统一鼠标/触屏，setPointerCapture
+// 让手指/鼠标漂出 handle 也能继续拖；拖拽中 handle 高亮、页面禁选中
+function setupTrackResize(row, tr) {
+  const handle = document.createElement('div');
+  handle.className = 'track-resize-handle';
+  handle.title = '拖动调整轨道高度（双击复位）';
+  row.appendChild(handle);
+  handle.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = trackH(tr);
+    handle.classList.add('dragging');
+    document.body.classList.add('select-none');
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    const onMove = (ev) => {
+      const h = Math.round(Math.max(TRACK_H_MIN, Math.min(TRACK_H_MAX, startH + ev.clientY - startY)));
+      tr.trackH = h;
+      applyTrackHeight(row, h);
+    };
+    const onUp = () => {
+      handle.classList.remove('dragging');
+      document.body.classList.remove('select-none');
+      handle.removeEventListener('pointermove', onMove);
+      handle.removeEventListener('pointerup', onUp);
+      handle.removeEventListener('pointercancel', onUp);
+    };
+    handle.addEventListener('pointermove', onMove);
+    handle.addEventListener('pointerup', onUp);
+    handle.addEventListener('pointercancel', onUp);
+  });
+  handle.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+    tr.trackH = TRACK_H_HOME;
+    applyTrackHeight(row, TRACK_H_HOME);
+  });
+}
 
 // 动态计算时间轴总时长：所有 clip 最大值 + 缓冲，最少 30s
 // 录音中：clip 还未加入数组，需用 currentSeconds() 兜底，保证时间轴随录音长度扩展
@@ -717,14 +767,15 @@ function renderTracks() {
   const totalDur = getTotalDuration();
   project.tracks.forEach((tr, i) => {
     const row = document.createElement('div');
-    row.className = 'grid border-b border-border last:border-b-0';
+    row.className = 'grid border-b border-border last:border-b-0 relative';
     row.style.gridTemplateColumns = `${CHANNEL_PX}px ${totalDur * PX_PER_SEC}px`;
     row.dataset.trackId = tr.id;
+    const h = trackH(tr); // 该轨当前高度（拖边框独立调整，存 tr.trackH）
 
     // --- Channel strip (左列) ---
     const strip = document.createElement('div');
     strip.className = 'px-2 py-1.5 border-r border-border bg-muted/40 flex items-center gap-1.5';
-    strip.style.minHeight = `${TRACK_H}px`; // 竖向缩放：跟随当前轨道高度
+    strip.style.minHeight = `${h}px`; // 竖向缩放：跟随该轨高度
     const icon = tr.kind === 'backing' ? 'music-4' : 'mic';
     const accent = tr.kind === 'backing' ? 'bg-secondary/20 text-secondary-foreground' : 'bg-primary/15 text-primary';
     strip.innerHTML = `
@@ -747,7 +798,7 @@ function renderTracks() {
     const arr = document.createElement('div');
     // 静音轨整行淡化，状态一眼可见；高度随竖向缩放（波形纵向拉伸）
     arr.className = `relative bg-muted/10 ${tr.muted ? 'opacity-40' : ''}`;
-    arr.style.height = `${TRACK_H}px`;
+    arr.style.height = `${h}px`;
     arr.style.width = `${totalDur * PX_PER_SEC}px`;
     // 垂直秒线（步进随缩放自适应：主刻度粗、次刻度细；整数计数防浮点漂移）
     const steps = timelineSteps();
@@ -775,6 +826,7 @@ function renderTracks() {
       arr.appendChild(el);
     });
     row.appendChild(arr);
+    setupTrackResize(row, tr); // 轨道底边拖拽拉升（单轨独立高度）
     tracksBody.appendChild(row);
   });
   refreshIcons();
@@ -785,6 +837,8 @@ function renderTracks() {
 // ---- Waveform 绘制：解码 blob → 提取峰值 → SVG bars ----
 // clip._waveSVG: 之前算好的 SVG 字符串缓存
 async function drawWaveform(containerEl, clip, isBacking) {
+  // 已有缓存的波形直接同步画（重渲染不再闪占位线）
+  if (clip._waveSVG) { containerEl.innerHTML = clip._waveSVG; return; }
   // 先放 loading skeleton（一条居中柔和线占位）
   containerEl.innerHTML = `<svg class="w-full h-full" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
     <line x1="0" y1="15" x2="100" y2="15" stroke="currentColor" stroke-opacity=".2" stroke-width="1"/>
@@ -796,12 +850,21 @@ async function drawWaveform(containerEl, clip, isBacking) {
       const buf = await getClipBuffer(clip);
       clip._waveSVG = computeWaveSVG(buf, isBacking);
     }
-    if (containerEl.isConnected) {
-      containerEl.innerHTML = clip._waveSVG;
-    }
+    // 解码是异步的：期间如果发生重渲染，闭包里的 containerEl 已被换掉
+    // （脱离文档，写进去永远不可见——「轨道上没有波形」的元凶之一）。
+    // 按 clipId 重新定位当前挂载在文档里的容器再写。
+    const live = document.querySelector(`[data-clip-id="${clip.id}"] .waveform-wrap`) || containerEl;
+    if (live) live.innerHTML = clip._waveSVG;
   } catch (err) {
-    // 解码失败：保留占位即可（不影响交互）
+    // 解码失败：自动重试两次（iOS 偶发解码失败不至于永久空白），仍失败保留占位
     console.warn('waveform decode failed', err);
+    clip._waveRetry = (clip._waveRetry || 0) + 1;
+    if (clip._waveRetry <= 2) {
+      setTimeout(() => {
+        const live = document.querySelector(`[data-clip-id="${clip.id}"] .waveform-wrap`);
+        if (live) drawWaveform(live, clip, isBacking);
+      }, 1200 * clip._waveRetry);
+    }
   }
 }
 // 取波形左右峰值：把 buf.length 分成 N 份，每份取最大绝对值
