@@ -1203,10 +1203,10 @@ async function getLiveChain(tr) {
       tr._liveChain = createFxChain(_ac, trackFx(tr), reverbBusIn, masterGain);
       tr._liveChain.setBypass(!!tr.bypass);
       // 轨道闸门：所有输入（播放元素 / 监听麦克风）先进增益节点再进 FX 链。
-      // 静音/独奏通过拉闸实时生效，不重建链、不打断播放。
+      // 静音/独奏通过拉闸实时生效，不重建链、不打断播放；音量推子也乘在这里。
       if (!tr._trackGain) {
         tr._trackGain = _ac.createGain();
-        tr._trackGain.gain.value = isTrackAudible(tr) ? 1 : 0; // 建闸时就按当前 M/S 状态初始化
+        tr._trackGain.gain.value = isTrackAudible(tr) ? trackVolume(tr) : 0; // 建闸时就按当前 M/S + 音量初始化
         tr._trackGain.connect(tr._liveChain.input);
       }
     } catch {
@@ -1215,21 +1215,25 @@ async function getLiveChain(tr) {
   }
   return tr._liveChain;
 }
-// M/S 实时生效：拉/放所有轨道闸门 + 直连播放的元素用自身 muted 兜底
+// M/S/音量 实时生效：拉/放所有轨道闸门 + 直连播放的元素用自身 muted/volume 兜底
 function syncTrackGains() {
   project.tracks.forEach((tr) => {
     if (!tr._trackGain || !_ac) return;
     const audible = isTrackAudible(tr);
+    const target = audible ? trackVolume(tr) : 0;
     try {
-      tr._trackGain.gain.setTargetAtTime(audible ? 1 : 0, _ac.currentTime, 0.008); // 短斜坡防咔哒
+      tr._trackGain.gain.setTargetAtTime(target, _ac.currentTime, 0.008); // 短斜坡防咔哒
     } catch {
-      tr._trackGain.gain.value = audible ? 1 : 0;
+      tr._trackGain.gain.value = target;
     }
   });
   // 元素降级路径（无 FX 图直连播放）用元素 muted 兜底；bufferSource 路径由上面的闸门管
   activePlaybacks.forEach((p) => {
     if (!p.track || !p.audio) return;
-    try { p.audio.muted = !isTrackAudible(p.track); } catch {}
+    try {
+      p.audio.muted = !isTrackAudible(p.track);
+      p.audio.volume = trackVolume(p.track);
+    } catch {}
   });
 }
 // 滑杆调完后同步到 live 链（链不存在说明还没播过，播放时会按当前 fx 建）
@@ -1252,8 +1256,8 @@ async function mixProjectToBuffer(tracks, options = {}) {
       // 复用 clip 级解码缓存（波形/live 播放时多半已解码过，导出免二次解码）
       if (!c._buffer) c._buffer = await decodeBlob(blob);
       const buf = c._buffer;
-      // 旁通的轨按默认参数渲染（等效干声直通），与 live 软旁通行为一致；声像保留
-      allClips.push({ buf, startTime: c.startTime || 0, fx: tr.bypass ? { ...defaultFx(), pan: trackFx(tr).pan } : trackFx(tr) });
+      // 旁通的轨按默认参数渲染（等效干声直通），与 live 软旁通行为一致；声像保留；音量随推子
+      allClips.push({ buf, startTime: c.startTime || 0, vol: trackVolume(tr), fx: tr.bypass ? { ...defaultFx(), pan: trackFx(tr).pan } : trackFx(tr) });
     }
   }
   if (!allClips.length) return null;
@@ -1282,7 +1286,15 @@ async function mixProjectToBuffer(tracks, options = {}) {
     if (!chainCache.has(key)) chainCache.set(key, createFxChain(oac, cl.fx, conv, master));
     const src = oac.createBufferSource();
     src.buffer = cl.buf;
-    src.connect(chainCache.get(key).input);
+    // 音量推子：插在链前（与 live 的 _trackGain 同位置），导出 = 所听
+    if (cl.vol != null && cl.vol !== 1) {
+      const vg = oac.createGain();
+      vg.gain.value = cl.vol;
+      src.connect(vg);
+      vg.connect(chainCache.get(key).input);
+    } else {
+      src.connect(chainCache.get(key).input);
+    }
     src.start(Math.max(0, cl.startTime));
   }
   const mixed = await oac.startRendering();
@@ -1992,6 +2004,12 @@ function syncMixerUI() {
     if (el) el.value = fx[f.key];
     if (val) val.textContent = f.fmt(fx[f.key]);
   });
+  // 音量推子（轨道属性，非 fx——预设/重置不动它）
+  const volEl = document.getElementById('mix-volume');
+  const volVal = document.getElementById('mix-volume-val');
+  const pct = trackVolumePct(mixerTrack);
+  if (volEl) volEl.value = pct;
+  if (volVal) volVal.textContent = `${pct}%`;
   syncAtScaleUI(fx.atScale);
   syncAtRootUI(fx.atRoot);
   syncAtHint(fx.atScale, fx.atRoot);
@@ -2072,6 +2090,23 @@ MIXER_FIELDS.forEach((f) => {
     applyLiveFx(mixerTrack); // 播放中实时生效
   });
 });
+// 音量推子：轨道属性（不进 fx），拖动即时生效（播放中也能听到渐变）
+document.getElementById('mix-volume')?.addEventListener('input', (e) => {
+  if (!mixerTrack) return;
+  mixerTrack.volume = Number(e.target.value);
+  const val = document.getElementById('mix-volume-val');
+  if (val) val.textContent = `${Math.round(mixerTrack.volume)}%`;
+  syncTrackGains(); // 经闸门缩放，播放/监听中实时生效
+});
+// 双击滑杆回到 100%（与缩放标签双击复位同款交互）
+document.getElementById('mix-volume')?.addEventListener('dblclick', (e) => {
+  if (!mixerTrack) return;
+  mixerTrack.volume = 100;
+  e.target.value = 100;
+  const val = document.getElementById('mix-volume-val');
+  if (val) val.textContent = '100%';
+  syncTrackGains();
+});
 // 预设 / 重置
 MIXER_PRESETS.forEach((p, i) => {
   document.getElementById(`mix-preset-${i}`)?.addEventListener('click', () => {
@@ -2129,6 +2164,18 @@ function isTrackAudible(tr) {
   const anySolo = project.tracks.some((t) => t.solo);
   if (anySolo && !tr.solo) return false;
   return true;
+}
+// ---- 轨道音量（混音台推子）----
+// tr.volume 存 0-100（缺省 100）；映射为线性增益时用平方曲线——
+// 人耳对响度的感知近似对数，平方映射让滑杆中段就是「听感减半」，推起来顺手。
+// 闸门（_trackGain）乘在 FX 链之前：静音是拉到 0，音量是缩放，两者正交。
+function trackVolumePct(tr) {
+  const v = tr.volume;
+  return typeof v === 'number' && isFinite(v) ? Math.max(0, Math.min(100, Math.round(v))) : 100;
+}
+function trackVolume(tr) {
+  const n = trackVolumePct(tr) / 100;
+  return n * n;
 }
 
 let playbackGen = 0; // 停止代数：异步建链期间若用户又停了，等待恢复后不再开播
@@ -2207,6 +2254,7 @@ async function startPlayback(startSec) {
         a.preload = 'auto';
         try { a.currentTime = offset; } catch {}
         a.muted = !audible; // 静音轨元素照常跑（哑的），播放中取消静音立即出声
+        a.volume = trackVolume(tr); // 音量推子同样作用于降级路径
         const chain = tr._liveChain || null;
         if (chain && tr._trackGain) {
           try { _ac.createMediaElementSource(a).connect(tr._trackGain); } catch {}
@@ -2814,6 +2862,7 @@ document.getElementById('save-project-btn')?.addEventListener('click', async () 
         kind: tr.kind,
         muted: tr.muted,
         solo: tr.solo,
+        volume: trackVolumePct(tr), // 音量推子随工程保存
         armed: false, // 保存后默认不 arm
         fx: trackFx(tr), // 混音参数（EQ/压缩/混响）随工程保存
         bypass: !!tr.bypass, // 旁通状态随工程保存
@@ -3179,6 +3228,7 @@ listEl?.addEventListener('click', async (e) => {
           kind: tr.kind === 'backing' ? 'backing' : 'record',
           muted: !!tr.muted,
           solo: !!tr.solo,
+          volume: Number.isFinite(tr.volume) ? tr.volume : 100, // 恢复音量推子（老工程缺省 100）
           armed: false, // 载入后默认不 arm
           fx: trackFx(tr), // 恢复混音参数（老工程缺省时为全默认）
           clips: liveClips,

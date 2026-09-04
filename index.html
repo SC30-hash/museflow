@@ -410,6 +410,18 @@
           <button type="button" id="mix-bypass" class="mf-switch shrink-0" role="switch" aria-checked="true" aria-label="旁通效果器"></button>
         </div>
         <p class="text-[11px] text-muted-foreground/70 -mt-3">关闭后旁通 EQ / 自动音准 / 去齿音 / 饱和 / 压缩 / 混响（声像保留）；参数不会丢失</p>
+        <!-- Volume -->
+        <section id="mix-sec-volume">
+          <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
+            <i data-lucide="volume-2" class="w-3.5 h-3.5 text-primary"></i>音量
+          </h4>
+          <div class="flex items-center gap-3">
+            <span class="w-14 shrink-0 text-xs text-muted-foreground">推子</span>
+            <input id="mix-volume" type="range" min="0" max="100" step="1" value="100" class="mix-slider flex-1" aria-label="轨道音量" />
+            <span id="mix-volume-val" class="w-16 shrink-0 text-right text-xs font-mono text-foreground">100%</span>
+          </div>
+          <p class="text-[11px] text-muted-foreground/70 mt-2">该轨整体音量（含监听与导出，所听即所得）；随工程保存；双击滑杆回到 100%</p>
+        </section>
         <!-- EQ -->
         <section id="mix-sec-eq">
           <h4 class="text-[13px] font-medium mb-3 flex items-center gap-1.5">
