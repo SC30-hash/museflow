@@ -552,9 +552,32 @@ async function acquireMicStream() {
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: musicConstraints });
-  } catch {
+  } catch (firstErr) {
     // 个别老浏览器不认非基本约束：退回默认申请（行为与旧版一致）
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (secondErr) {
+      const err = secondErr || firstErr;
+      const name = err?.name || '';
+      const msg = err?.message || '';
+      let tip = '无法访问麦克风';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || /denied|not allowed|permission/i.test(msg)) {
+        tip = isIOSDevice()
+          ? '麦克风权限被拒绝：iPhone 设置 → Safari → 麦克风 → 打开'
+          : '麦克风权限被拒绝：请在浏览器地址栏左侧点击锁图标，允许麦克风权限';
+      } else if (name === 'NotFoundError' || name === 'DevicesNotFoundError' || /not found|no device/i.test(msg)) {
+        tip = isIOSDevice()
+          ? '未检测到麦克风：请检查设备麦克风是否正常，或尝试重启手机'
+          : '未检测到麦克风设备：请确认电脑已连接麦克风';
+      } else if (name === 'NotReadableError' || /constraint|overconstrained/i.test(msg)) {
+        tip = '麦克风被其他应用占用，请关闭占用麦克风的 App 后重试';
+      } else if (name === 'SecurityError' || /secure|https/i.test(msg)) {
+        tip = '安全限制：请使用 HTTPS 访问本页面';
+      } else {
+        tip = '无法访问麦克风：' + (msg || name || '未知错误');
+      }
+      throw new Error(tip);
+    }
   }
   stream = await avoidBluetoothHfpMic(stream, musicConstraints);
   sharedMicStream = stream;
