@@ -526,13 +526,18 @@ async function acquireMicStream() {
   if (!navigator.mediaDevices) {
     if (navigator.getUserMedia || navigator.webkitGetUserMedia) {
       // 旧 API 转 Promise
+      applyMusicSessionForMic();
       const legacyGetUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia;
-      const stream = await new Promise((resolve, reject) => {
-        legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
-      });
-      sharedMicStream = stream;
-      applyMusicSessionForMic(sharedMicStream);
-      return sharedMicStream;
+      try {
+        const stream = await new Promise((resolve, reject) => {
+          legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
+        });
+        sharedMicStream = stream;
+        return sharedMicStream;
+      } catch {
+        clearMusicSession();
+        throw new Error('无法访问麦克风');
+      }
     }
     const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
     let hint = '';
@@ -549,6 +554,9 @@ async function acquireMicStream() {
   // 三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸）。
   // 代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
   const musicConstraints = { echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+  // 先切换音频会话到 play-and-record（必须在 getUserMedia 之前设置，
+  // 否则部分版本 Safari 会报 "category not compatible with audio capture"）
+  applyMusicSessionForMic();
   let stream;
   try {
     stream = await navigator.mediaDevices.getUserMedia({ audio: musicConstraints });
@@ -576,12 +584,13 @@ async function acquireMicStream() {
       } else {
         tip = '无法访问麦克风：' + (msg || name || '未知错误');
       }
+      // 失败时还原会话类型
+      clearMusicSession();
       throw new Error(tip);
     }
   }
   stream = await avoidBluetoothHfpMic(stream, musicConstraints);
   sharedMicStream = stream;
-  applyMusicSessionForMic(sharedMicStream);
   return sharedMicStream;
 }
 // ---- iOS 音频会话路由（Safari 16.4+）----
@@ -589,10 +598,11 @@ async function acquireMicStream() {
 // （WebKit 设 playAndRecord 类别但不带 defaultToSpeaker 选项，bug 218012），
 // 大喇叭直接静音，声音全从贴耳小听筒出来——听感就是“外放没声音”。
 // navigator.audioSession（W3C 提案，iOS 16.4+ 落地）允许页面声明会话类型。
-// 录音时用 'play-and-record' + defaultToSpeaker: true，既保留录音能力又维持扬声器输出。
+// 录音时用 'play-and-record' 类别 + defaultToSpeaker: true，既保留录音能力又维持扬声器输出。
+// 注意：必须在 getUserMedia 之前设置，否则部分版本 Safari 会报 "category not compatible with audio capture"
 let micSessionActive = false;
 let earpieceTipShown = false;
-function applyMusicSessionForMic(stream) {
+function applyMusicSessionForMic() {
   const as = navigator.audioSession;
   if (!as) {
     // iOS < 16.4 没有此 API：静音键免疫已由底噪轨兜底；听筒路由无法干预，给一次对症提示
@@ -600,19 +610,23 @@ function applyMusicSessionForMic(stream) {
       earpieceTipShown = true;
       window.MFToast('当前 iOS 版本较旧：静音键已不影响播放（已启用兼容模式）；若录音期间外放仍无声（系统把输出切到听筒），升级到 iOS 16.4 以上可彻底解决');
     }
-    return;
+    return false;
   }
   try {
     // 录音期间：play-and-record 类别 + 默认扬声器输出
     as.type = 'play-and-record';
-    // setOptions 需在 type 设置之后调用
+    // setOptions 需在 type 设置之后调用，部分版本可能不支持，忽略失败
     if (typeof as.setOptions === 'function') {
-      as.setOptions({ defaultToSpeaker: true }).catch(() => { /* 旧版本不支持，忽略 */ });
+      try {
+        as.setOptions({ defaultToSpeaker: true });
+      } catch { /* 不支持 options，忽略 */ }
     }
     micSessionActive = true;
+    return true;
   } catch {
     // 设置失败：退回默认行为，不影响录音
     micSessionActive = false;
+    return false;
   }
 }
 // 麦克风释放时会话还原为应用级 'playback'（静音键免疫是常驻的，不交回默认）
