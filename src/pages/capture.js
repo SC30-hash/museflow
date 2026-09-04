@@ -588,9 +588,8 @@ async function acquireMicStream() {
 // 外放录音没声音的第一元凶：Safari 开麦后系统把输出切到听筒
 // （WebKit 设 playAndRecord 类别但不带 defaultToSpeaker 选项，bug 218012），
 // 大喇叭直接静音，声音全从贴耳小听筒出来——听感就是“外放没声音”。
-// navigator.audioSession（W3C 提案，iOS 16.4+ 落地）允许页面声明会话类型：
-// 录音期间声明 'playback'，系统保持扬声器正常输出、音量不受压
-// （bug 218012 #38 在 iOS 16.4 实测确认，麦克风采集不受影响）。
+// navigator.audioSession（W3C 提案，iOS 16.4+ 落地）允许页面声明会话类型。
+// 录音时用 'play-and-record' + defaultToSpeaker: true，既保留录音能力又维持扬声器输出。
 let micSessionActive = false;
 let earpieceTipShown = false;
 function applyMusicSessionForMic(stream) {
@@ -604,19 +603,17 @@ function applyMusicSessionForMic(stream) {
     return;
   }
   try {
-    as.type = 'playback';
-    micSessionActive = true;
-    // 保险：万一个别版本掐掉采集（track 意外结束），退回 'play-and-record'
-    // 保住录音能力（输出可能回听筒，但录音优先）
-    const tr = stream && stream.getAudioTracks && stream.getAudioTracks()[0];
-    if (tr) {
-      tr.addEventListener('ended', () => {
-        if (!micSessionActive) return; // 我们主动停的（正常释放/换麦）：不算事故
-        micSessionActive = false;
-        try { as.type = 'play-and-record'; } catch {}
-      }, { once: true });
+    // 录音期间：play-and-record 类别 + 默认扬声器输出
+    as.type = 'play-and-record';
+    // setOptions 需在 type 设置之后调用
+    if (typeof as.setOptions === 'function') {
+      as.setOptions({ defaultToSpeaker: true }).catch(() => { /* 旧版本不支持，忽略 */ });
     }
-  } catch { /* 赋值被拒：维持浏览器默认行为 */ }
+    micSessionActive = true;
+  } catch {
+    // 设置失败：退回默认行为，不影响录音
+    micSessionActive = false;
+  }
 }
 // 麦克风释放时会话还原为应用级 'playback'（静音键免疫是常驻的，不交回默认）
 function clearMusicSession() {
