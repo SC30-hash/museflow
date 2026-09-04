@@ -517,7 +517,14 @@ const BT_MIC_RE = /bluetooth|headset|hands[-\s]?free|HFP|airpods?|powerbeats|bea
 const BUILTIN_MIC_RE = /built[-\s]?in|internal|内置|本机|iPhone|iPad|MacBook|iMac|default|默认/i;
 async function acquireMicStream() {
   if (sharedMicStream) return sharedMicStream;
-  if (!navigator.mediaDevices || !window.MediaRecorder) throw new Error('不支持录音');
+  if (!window.MediaRecorder || !navigator.mediaDevices) {
+    const missing = [];
+    if (!window.MediaRecorder) missing.push('MediaRecorder');
+    if (!navigator.mediaDevices) missing.push('mediaDevices');
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+    const reason = !isHttps ? '（当前不是 HTTPS 环境，浏览器禁用了录音 API）' : '';
+    throw new Error('不支持录音：缺少 ' + missing.join('、') + reason);
+  }
   // 音乐录音关掉浏览器默认开启的语音 DSP（AEC / 降噪 / AGC）：
   // 三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸）。
   // 代价：外放录歌时伴奏会串进麦克风（本来就建议戴耳机）。
