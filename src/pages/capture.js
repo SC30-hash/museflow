@@ -517,13 +517,33 @@ const BT_MIC_RE = /bluetooth|headset|hands[-\s]?free|HFP|airpods?|powerbeats|bea
 const BUILTIN_MIC_RE = /built[-\s]?in|internal|内置|本机|iPhone|iPad|MacBook|iMac|default|默认/i;
 async function acquireMicStream() {
   if (sharedMicStream) return sharedMicStream;
-  if (!window.MediaRecorder || !navigator.mediaDevices) {
-    const missing = [];
-    if (!window.MediaRecorder) missing.push('MediaRecorder');
-    if (!navigator.mediaDevices) missing.push('mediaDevices');
+  if (!window.MediaRecorder) {
     const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
-    const reason = !isHttps ? '（当前不是 HTTPS 环境，浏览器禁用了录音 API）' : '';
-    throw new Error('不支持录音：缺少 ' + missing.join('、') + reason);
+    let hint = !isHttps ? '（当前不是 HTTPS 环境，浏览器禁用了录音 API）' : '（当前浏览器不支持 MediaRecorder，建议升级系统或使用 Chrome）';
+    throw new Error('不支持录音：缺少 MediaRecorder ' + hint);
+  }
+  // Safari 旧版兼容：navigator.mediaDevices 可能不存在，但有 webkitGetUserMedia
+  if (!navigator.mediaDevices) {
+    if (navigator.getUserMedia || navigator.webkitGetUserMedia) {
+      // 旧 API 转 Promise
+      const legacyGetUserMedia = navigator.getUserMedia || navigator.webkitGetUserMedia;
+      const stream = await new Promise((resolve, reject) => {
+        legacyGetUserMedia.call(navigator, { audio: true }, resolve, reject);
+      });
+      sharedMicStream = stream;
+      applyMusicSessionForMic(sharedMicStream);
+      return sharedMicStream;
+    }
+    const isHttps = location.protocol === 'https:' || location.hostname === 'localhost';
+    let hint = '';
+    if (!isHttps) {
+      hint = '当前不是 HTTPS 环境，浏览器禁用了录音 API';
+    } else if (isIOSDevice()) {
+      hint = 'iOS Safari 请检查：设置 → Safari → 麦克风 是否允许；无痕模式下录音不可用';
+    } else {
+      hint = '请检查浏览器的麦克风权限设置，或尝试刷新页面';
+    }
+    throw new Error('不支持录音：缺少 mediaDevices（' + hint + '）');
   }
   // 音乐录音关掉浏览器默认开启的语音 DSP（AEC / 降噪 / AGC）：
   // 三件套都是语音通话向的处理，会给人声染色（金属感/呼吸感抽吸）。
